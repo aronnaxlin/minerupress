@@ -103,6 +103,7 @@ pytest
 - `volume_uid`：顶层默认逻辑分册 UID。章节不写 `volume_uid` 时继承它。
 - `toc_max_page`：查找每个逻辑 UID 的第一个章节边界时跳过的目录页阈值；`0` 表示不跳过。
 - `allow_missing_boundaries`：默认 `false`。严格模式下任一章节边界缺失会失败。
+- `page_footnotes`：默认 `skip`。设为 `paragraph` 时把以脚注标记开头的 `page_footnote` 作为引用块放在所在页最后一个完整段落之后。
 - `plugins`：内置插件名或自定义插件 dotted import 路径。需要传参时写成单键映射，例如 `- qr_filter: {max_side: 250}`（块写法为 `- qr_filter:` 下缩进 `max_side: 250`）；纯字符串写法继续可用。`cf_pages` 仍从 `deploy:` 段取参数，写在插件项里的同名参数优先。参数名不被插件的 `__init__` 接受时加载会报错。
 - `chapters`：章节列表，必须包含 `slug` 和 `title`。
 

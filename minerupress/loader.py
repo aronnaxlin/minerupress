@@ -14,7 +14,7 @@ from typing import Literal
 
 import yaml
 
-from .core import BookConfig, ChapterConfig
+from .core import PAGE_FOOTNOTE_MODES, BookConfig, ChapterConfig
 from .plugins.base import ExportPlugin
 
 SourceKind = Literal["uploaded_result", "local_toolchain", "official_api"]
@@ -62,6 +62,7 @@ def load_book_config(
     volume_uid: 73d5b3e7                   # optional default for chapters
     toc_max_page: 10                       # optional; 0 disables TOC-page skipping
     allow_missing_boundaries: false        # optional; strict by default
+    page_footnotes: skip                   # optional; "paragraph" keeps page footnotes
 
     # Uploaded MinerU result already exists under mineru_root
     # source: uploaded_result
@@ -138,6 +139,7 @@ def load_book_config(
         docs_out=_resolve_path(base_dir, raw.get("docs_out", "docs")),
         toc_max_page=_optional_int(raw.get("toc_max_page", 10)),
         allow_missing_boundaries=bool(raw.get("allow_missing_boundaries", False)),
+        page_footnotes=_page_footnote_mode(raw.get("page_footnotes", "skip")),
     )
 
     plugins = _load_plugins(raw.get("plugins", []), raw.get("deploy", {}), base_dir)
@@ -188,6 +190,17 @@ def _poll_timeout(value) -> int:
             f"api.poll_timeout must be a positive number of seconds, got {value!r}."
         )
     return seconds
+
+
+def _page_footnote_mode(value) -> str:
+    # YAML booleans are accepted as shorthand for the two modes.
+    if isinstance(value, bool):
+        return "paragraph" if value else "skip"
+    mode = str(value).strip().lower()
+    if mode not in PAGE_FOOTNOTE_MODES:
+        allowed = ", ".join(PAGE_FOOTNOTE_MODES)
+        raise ValueError(f"Unsupported page_footnotes: {value!r}. Expected one of: {allowed}")
+    return mode
 
 
 def _optional_int(value) -> int | None:

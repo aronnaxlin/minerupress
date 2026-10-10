@@ -80,6 +80,7 @@ Boundary controls:
 - `start_patterns`: multiple regex alternatives.
 - `toc_max_page`: skip early table-of-contents matches only for the first boundary in a logical volume.
 - `allow_missing_boundaries`: keep `false` for CI/production.
+- `page_footnotes`: `skip` (default) drops MinerU `page_footnote` items; `paragraph` keeps the ones that start with a footnote marker and writes them as blockquotes after the last complete paragraph of their page.
 
 Practical guidance:
 

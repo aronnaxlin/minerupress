@@ -49,6 +49,9 @@ class BookConfig:
     # disable filtering when a split PDF starts directly at chapter content.
     toc_max_page: int | None = 10
     allow_missing_boundaries: bool = False
+    # "skip" drops page_footnote items; "paragraph" keeps the ones that look
+    # like footnotes and places them at the next paragraph boundary.
+    page_footnotes: str = "skip"
 
 
 @dataclass(frozen=True)
@@ -908,17 +911,63 @@ class _ItemStats:
             )
 
 
+PAGE_FOOTNOTE_MODES = ("skip", "paragraph")
+# MinerU also tags stray code and formula fragments at the page bottom as
+# page_footnote; only text that opens with a footnote marker is kept.
+_FOOTNOTE_MARK_RE = re.compile(
+    r"^\s*(?:"
+    r"[①-⑳⑴-⒇*＊†‡§¶※¹²³⁰⁴-⁹]"
+    r"|\$\s*\^"
+    r"|\[\d{1,3}\]"
+    r"|\d{1,3}[\s.．、)）]"
+    r"|注\s*[\d:：]"
+    r")"
+)
+_SENTENCE_END_RE = re.compile(r"[。！？!?.；;:：…][\"'”’」』）)】\]]*\s*$")
+
+
+def _is_plain_paragraph(item: dict) -> bool:
+    return item.get("type") in _BOUNDARY_TYPES and not item.get("text_level")
+
+
+def _footnote_block(notes: Sequence[str]) -> str:
+    return "\n>\n".join(f"> {note}" for note in notes)
+
+
 def _render_chapter_items(
     chapter_items: Sequence[tuple[int, dict, _VolumeSegment]],
     ch: ChapterConfig,
     image_decisions: dict[tuple[Path, int], str | None],
     plugins: Sequence[ExportPlugin],
+    page_footnotes: str = "skip",
 ) -> tuple[list[str], _ItemStats]:
     lines: list[str] = []
     stats = _ItemStats()
     skip = _leading_title_count(chapter_items, ch)
+    # A footnote sits at the bottom of its page, which may be the middle of a
+    # paragraph that continues on the next page.  Notes found there wait in
+    # `pending` until that paragraph has been written.
+    pending: list[str] = []
+    paragraph_open = False
+
+    def flush() -> None:
+        if pending:
+            lines.append(_footnote_block(pending))
+            lines.append("")
+            pending.clear()
+
     for n, (item_idx, item, segment) in enumerate(chapter_items):
         t = item.get("type", "")
+        if t == "page_footnote" and page_footnotes == "paragraph" and n >= skip:
+            text = re.sub(r"\s*\n\s*", " ", str(item.get("text", ""))).strip()
+            if _FOOTNOTE_MARK_RE.match(text):
+                pending.append(_apply_text_plugins(item, text, plugins))
+                stats.written[t] += 1
+                if not paragraph_open:
+                    flush()
+            else:
+                stats.dropped[t] += 1
+            continue
         md = None
         if n >= skip:
             md = _item_to_md(
@@ -928,12 +977,21 @@ def _render_chapter_items(
             )
         if md is not None:
             stats.written[t] += 1
+            continues = paragraph_open and _is_plain_paragraph(item)
+            if not continues:
+                flush()
             lines.append(md)
             lines.append("")
+            if continues:
+                flush()
+            paragraph_open = _is_plain_paragraph(item) and not _SENTENCE_END_RE.search(
+                str(item.get("text", ""))
+            )
             continue
         stats.dropped[t] += 1
         if n >= skip and t not in _HANDLED_TYPES | _SKIP_TYPES and _has_content(item):
             stats.unhandled[t] += 1
+    flush()
     return lines, stats
 
 
@@ -1046,6 +1104,7 @@ def export(config: BookConfig, plugins: Sequence[ExportPlugin] = ()) -> None:
 
             body, stats = _render_chapter_items(
                 chapter_items, ch, image_decisions, plugins,
+                page_footnotes=config.page_footnotes,
             )
             book_stats.add(stats)
             lines: list[str] = [f"# {ch.title}", "", *body]

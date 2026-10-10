@@ -25,6 +25,11 @@ toc_max_page: 10
 # 默认严格模式：任一章节边界找不到就失败，避免静默生成错位章节。
 allow_missing_boundaries: false
 
+# 页面脚注（MinerU 的 page_footnote）。默认 skip：不输出。
+# 设为 paragraph：保留以脚注标记开头的条目（①、[1]、* 等），以引用块形式
+# 放在所在页最后一个完整段落之后；页底的代码或公式碎片仍会丢弃。
+page_footnotes: skip
+
 # ── 可选：本地 MinerU 工具链（外部安装，不内置在 MineruPress） ───────────────
 # 仅当 source: local_toolchain 时使用。
 # 需要你先按 MinerU 官方文档自行安装 `mineru` CLI。常见方式：

@@ -70,7 +70,22 @@ minerupress headings resources/mineru --volume-uid <uid> --format yaml --body-on
 - `list`：`list_items` 渲染成 Markdown 列表，条目已带 `-`、`1.` 等前缀时不会重复添加
 - `text`：根据 `text_level` 转成标题或正文
 - 其他文本型 item：按普通文本输出
-- `page_number`、`header`、`footer`、`page_footnote`：直接跳过
+- `page_number`、`header`、`footer`：直接跳过
+- `page_footnote`：默认跳过，见下面的“页面脚注”
+
+### 页面脚注
+
+`book.yml` 的 `page_footnotes` 控制 `page_footnote` 的去向：
+
+- `skip`（默认）：不输出，只计入导出统计的 `dropped`。
+- `paragraph`：输出为 `> ` 引用块。
+
+`paragraph` 模式的规则：
+
+- 只保留以脚注标记开头的条目，例如 `①`、`[1]`、`1.`、`*`、`†`、`注：`。MinerU 有时会把页底的代码或公式碎片也标成 `page_footnote`，这些会被丢弃并计入 `dropped`。
+- 脚注在原书里位于页底。如果它前面的段落已经以句末标点结束，引用块就放在这一段之后；如果这一段跨页（没有句末标点），引用块会等下一页的续写段落输出后再出现，不会把一段话截成两半。
+- 遇到标题、图、表、代码、公式或章节结尾时，等待中的脚注会先输出。
+- 脚注编号保持原书写法，不重新编号，也不会和正文里的角标建立链接。原书通常每页从 ① 重新编号，所以同一章里会出现多个 ①。
 
 ### 章首标题去重
 
@@ -81,7 +96,7 @@ minerupress headings resources/mineru --volume-uid <uid> --format yaml --body-on
 导出过程只在控制台输出统计，不写文件：
 
 - 每章一行 `Wrote ...`，末尾附带该章写出 / 丢弃的 item 数
-- 全书汇总按 item 类型列出 `written / dropped`；`page_footnote` 等默认跳过的类型也会计入 `dropped`
+- 全书汇总按 item 类型列出 `written / dropped`；`header`、`page_number` 等跳过的类型也会计入 `dropped`
 - 遇到没有任何转换分支、但带有内容的 item 类型时，会输出 `[WARN]` 提示
 
 ## 文本处理细节
