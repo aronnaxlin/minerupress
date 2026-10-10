@@ -63,4 +63,4 @@ extra_javascript:
 nav:
   - 首页: index.md
   - 各章内容:
-      - 第1章 概述: chapters/ch01-overview.md
+      - 示例章节（请用 minerupress headings 的输出替换）: chapters/ch01-overview.md

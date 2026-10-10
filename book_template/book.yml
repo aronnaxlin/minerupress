@@ -97,6 +97,10 @@ plugins:
 # 若 MinerU 识别出的标题与 title 不同，可用 aliases 或 start_patterns 补充。
 # 章号和章名被拆成两行、或章号被 OCR 丢掉时，会依次回退到“只有章号”“只有章名”
 # 的整行匹配，并在导出时打印 [NOTE] 提示命中的行和页码，请核对。
+#
+# 下面是占位章节，标题故意写成不会和任何图书匹配的样子。放好 MinerU 输出后运行
+#   minerupress headings resources/mineru --volume-uid <uid> --format yaml --body-only
+# 用它输出的 chapters 替换这一段；在此之前 export 会报章节边界缺失并给出下一步。
 chapters:
   - slug: ch01-overview
-    title: 第1章 概述
+    title: 示例章节（请用 minerupress headings 的输出替换）
