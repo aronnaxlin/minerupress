@@ -1,20 +1,65 @@
 name: Release
 
+# Versions live in git tags (vX.Y.Z), not in the source tree.
+#
+# - A push to main that has commits since the latest tag releases the next
+#   patch version automatically (scripts/next-version.sh). Put [skip release]
+#   in the head commit subject to opt out.
+# - Pushing a v* tag by hand releases exactly that version.
+#
+# Either way the version is stamped into pyproject.toml inside the runner right
+# before the build (scripts/stamp-version.py); it is never committed back.
+
 on:
   push:
-    tags:
-      - "v*"
-  release:
-    types: [published]
-  workflow_dispatch:
+    branches: [main]
+    tags: ["v*"]
+
+# One release at a time, so two pushes never compute the same next version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  version:
+    needs: test
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Decide the version to release
+        id: version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Tag $GITHUB_REF_NAME is not vX.Y.Z" >&2
+              exit 1
+            fi
+          else
+            version="$(scripts/next-version.sh "$GITHUB_SHA")"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Version to release: ${version:-<nothing new>}"
+
   build:
     name: Build Distributions
+    needs: version
+    if: needs.version.outputs.version != ''
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,6 +69,9 @@ jobs:
 
       - name: Install build tooling
         run: python -m pip install --upgrade build twine
+
+      - name: Stamp the version
+        run: python scripts/stamp-version.py "$VERSION"
 
       - name: Build
         run: python -m build
@@ -37,21 +85,12 @@ jobs:
           name: dist
           path: dist/*
 
-      - name: Attach distributions to GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
-
-  publish-pypi:
-    name: Publish To PyPI
-    if: github.event_name == 'release'
+  github-release:
+    needs: [version, build]
+    if: needs.version.outputs.version != ''
     runs-on: ubuntu-latest
-    needs: build
-    environment: pypi
     permissions:
-      id-token: write
-
+      contents: write
     steps:
       - name: Download distributions
         uses: actions/download-artifact@v4
@@ -59,7 +98,33 @@ jobs:
           name: dist
           path: dist
 
+      # Creates the tag at the pushed commit when it does not exist yet. Tags
+      # made with GITHUB_TOKEN do not start another run of this workflow.
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ needs.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: dist/*
+
+  publish-pypi:
+    name: Publish To PyPI
+    needs: [version, build, github-release]
+    if: needs.version.outputs.version != ''
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      # skip-existing keeps a re-run of an already published version green.
       - name: Publish
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
+          skip-existing: true

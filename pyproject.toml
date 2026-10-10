@@ -4,7 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "minerupress"
-version = "0.1.2"
+# Placeholder. Released versions live in git tags (vX.Y.Z); the release
+# workflow stamps the real one here before building. Do not edit by hand.
+version = "0.0.0.dev0"
 description = "Turn MinerU output into publishable MkDocs Material book sites"
 readme = "README.md"
 requires-python = ">=3.11"

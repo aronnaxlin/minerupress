@@ -31,9 +31,17 @@ python -m compileall minerupress
 pytest
 ```
 
-CI 跑两种安装：只装 `.[dev]` 的矩阵（Python 3.11、3.12）和装 `.[dev,all]` 的 `test-extras`。两种都必须通过，所以依赖可选包（`cv2`、`numpy`、`pangu`、`mkdocs`）的测试要用 `pytest.importorskip` 跳过，不能在模块顶部直接 import。
+CI（`ci.yml`，PR 时运行，发布前由 `release.yml` 调用）跑两种安装：只装 `.[dev]` 的矩阵（Python 3.11、3.12）和装 `.[dev,all]` 的 `test-extras`。两种都必须通过，所以依赖可选包（`cv2`、`numpy`、`pangu`、`mkdocs`）的测试要用 `pytest.importorskip` 跳过，不能在模块顶部直接 import。
 
 如果本地没有测试依赖，至少运行 `python -m compileall minerupress`，并在交付说明中明确说明哪些验证没有执行。
+
+## 版本号与发布
+
+- 版本号只存在于 git tag（`vX.Y.Z`）。`pyproject.toml` 里的 `0.0.0.dev0` 是占位值，不要手动改，也不要提交“bump version”之类的改动。
+- 每次推送到 `main`（包括合并 PR）都会在测试通过后自动发布下一个 patch 版本到 GitHub Release 和 PyPI。PyPI 上的版本号不能重用，所以合并前要确认改动可以发布。
+- 不想触发发布时，在最新提交的标题里写 `[skip release]`。
+- minor / major 版本通过手动推送 `vX.Y.Z` tag 发布。
+- 细节见 `docs/guide/release.md`，实现在 `.github/workflows/release.yml`、`scripts/next-version.sh` 和 `scripts/stamp-version.py`。
 
 ## 主要目录
 
@@ -51,6 +59,7 @@ CI 跑两种安装：只装 `.[dev]` 的矩阵（Python 3.11、3.12）和装 `.[
 - `docs/`：项目文档，不是某一本书的生成目录。
 - `skills/minerupress/`：给外部 AI agent 安装的 Skill，只讲用户怎样跑书，不讲开发。
 - `tests/`：pytest 测试，只用合成数据。
+- `scripts/`：发布用的脚本（计算下一个版本号、把版本号写进 `pyproject.toml`）。
 
 ## 仓库边界
 
