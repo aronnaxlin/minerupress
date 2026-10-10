@@ -93,17 +93,18 @@ minerupress headings resources/mineru --format yaml --body-only
 
 更稳妥的做法是检查导出日志和源 `img_path`，不要手改生成目录。
 
-## 云端抓取时出现权限错误
+## 云端抓取下载失败 / 超时
 
-一个典型报错是自动分片时试图把 `*_part1.pdf`、`*_part2.pdf` 写回原始 PDF 所在目录，但那个目录来自网盘、系统受保护路径或只读挂载。
+`minerupress fetch` 在上传后会把批次 ID 写进 `.minerupress/fetch-state.json`，所以下载失败或轮询超时后，**直接重跑同一条命令**即可续跑，不会重新上传。
 
-推荐处理方式不是改代码，而是改工作流：
+- 报错指出下载 host（如 `cdn-mineru.openxlab.org.cn`）且 API 本身正常：多半是本机代理或 DNS 规则单独拦截了这个 CDN 域名。调整代理规则后重跑
+- 超时报错列出了 batch_id：MinerU 仍在解析，重跑即可；书很大时调大 `api.poll_timeout`
+- 提示保存的批次已过期或查不到：用 `minerupress fetch book.yml --force` 重新上传
+- 提示 `MinerU API token required`：确认 `MINERU_API_TOKEN` 在 `book.yml` 同目录的 `.env` 里，或已在 shell 中设置
 
-1. 先把原始 PDF 复制到当前工作区的 `resources/pdfs/`
-2. 让 `api.sources` 指向这份本地副本
-3. 再执行 `minerupress fetch`
+## `fetch` 结束时提示章节边界缺失
 
-这样分片 PDF、抓取结果和生成物都会落在同一个隔离工作区里。
+新书模板只有一个占位章节，`fetch` 在抓取完成后导出时找不到边界，会以非零退出码结束。这不是抓取失败：`resources/mineru/` 已经就绪。按提示运行 `minerupress headings resources/mineru --volume-uid <uid> --format yaml --body-only`，修改 `chapters`，再运行 `minerupress export book.yml`。
 
 ## 如何判断一次跑书是否真的完成
 

@@ -54,10 +54,14 @@ allow_missing_boundaries: false
 #   enable_formula: true
 #   enable_table: true
 #   model_version: vlm
+#   poll_timeout: 600            # 等待 MinerU 解析的最长秒数（默认 600）；超时不会丢任务，
+#                                # 重跑 minerupress fetch 会接着等
 #   sources:                     # volume_uid前缀 → 本地 PDF 路径
 #     my-book: resources/pdfs/book.pdf
 #   # 单 PDF 超过 API 页数限制时会自动拆分成 my-book_part1、my-book_part2...
 #   # 章节仍可全部使用同一个 volume_uid，不需要手工维护 part UID。
+#   # 上传后的批次记录在 .minerupress/fetch-state.json：下载中断后重跑 fetch 会直接续跑，
+#   # 不会重新上传；结果已完整落盘时会跳过。想重新上传解析，用 minerupress fetch --force。
 # ──────────────────────────────────────────────────────────────────────────
 
 # ── 可选：Cloudflare Pages 部署 ────────────────────────────────────────────

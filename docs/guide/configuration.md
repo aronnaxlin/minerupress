@@ -132,13 +132,16 @@ api:
   enable_formula: true
   enable_table: true
   model_version: vlm
+  poll_timeout: 600
   sources:
     javaweb: resources/pdfs/javaweb.pdf
 ```
 
 说明：
 
-- `token` 留空时会读取 `MINERU_API_TOKEN`
+- `token` 留空时会读取 `MINERU_API_TOKEN`（可写在 `book.yml` 同目录的 `.env` 里）
+- `poll_timeout` 是每次 `fetch` 等待解析完成的最长秒数，默认 `600`；超时不会丢任务，重跑 `fetch` 会接着等
+- 上传后的批次记录在 `.minerupress/fetch-state.json`，重跑 `fetch` 会续跑；`minerupress fetch --force` 忽略记录并重新上传
 - `sources` 的 key 需要和章节使用的 `volume_uid` 对应
 - 相对路径同样按 `book.yml` 所在目录解析
 
