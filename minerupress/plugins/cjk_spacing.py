@@ -8,6 +8,7 @@ try:
     import pangu as _pangu
     _AVAILABLE = True
 except ImportError:
+    _pangu = None
     _AVAILABLE = False
 
 # Protect LaTeX spans from pangu so spaces aren't inserted inside formulas
