@@ -29,9 +29,9 @@ def test_headings_separates_toc_from_body_and_suggests_yaml(capsys) -> None:
     yaml = capsys.readouterr().out
 
     assert "slug: ch01" in yaml
-    assert "title: 引论" in yaml
+    assert "title: 第1章 引论" in yaml
     assert "slug: appendix-a" in yaml
-    assert "第1章 引论" not in yaml
+    assert "title: 附录A 术语表" in yaml
 
 
 def test_headings_includes_aside_text_chapter_candidates() -> None:

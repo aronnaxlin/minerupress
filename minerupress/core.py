@@ -112,6 +112,7 @@ _EN_APPENDIX_RE = re.compile(
 _NUMBERED_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)*)\b")
 _FENCE_RE = re.compile(r"^```", re.MULTILINE)
 _TITLE_TAIL_PATTERN = r"(?:\s|[:：、,，;；.!?。．-])\s*\S.*"
+_NAME_SEPARATORS = " \t\u3000:：、,，;；.．-—–·"
 _EN_NUMBERS = {
     "one": 1, "first": 1,
     "two": 2, "second": 2,
@@ -253,6 +254,23 @@ def _natural_key(path: Path) -> list[object]:
     ]
 
 
+def _segment_name_is_regular(name: str, uid: str) -> bool:
+    """True for the directory names MineruPress itself produces for ``uid``."""
+    return re.fullmatch(rf"{re.escape(uid)}(?:_full|_part\d+)?", name) is not None
+
+
+def _irregular_segment_dirs(dirs: Sequence[Path], uid: str) -> list[Path]:
+    """Directories that only match ``uid`` as a loose prefix, e.g. ``algo30_full``.
+
+    Short prefixes of MinerU UUID directories (``73d5`` -> ``73d5b3e7-...``) are
+    a documented way to write ``volume_uid``; they are only suspicious when
+    ``uid`` also has regular candidates (``uid``, ``uid_full``, ``uid_partN``).
+    """
+    if not any(_segment_name_is_regular(d.name, uid) for d in dirs):
+        return []
+    return [d for d in dirs if not _segment_name_is_regular(d.name, uid)]
+
+
 def _discover_segments(
     mineru_root: Path,
     uid_prefixes: Sequence[str],
@@ -266,12 +284,9 @@ def _discover_segments(
             uid for uid in uid_prefixes
             if d.name.startswith(uid)
         ]
-        if len(matches) > 1:
-            raise ValueError(
-                f"Volume directory {d} matches multiple volume_uids: {matches}"
-            )
+        # Overlapping prefixes (vol1 / vol10): the most specific UID owns it.
         if matches:
-            vol_dirs[matches[0]].append(d)
+            vol_dirs[max(matches, key=len)].append(d)
 
     missing = [uid for uid, dirs in vol_dirs.items() if not dirs]
     if missing:
@@ -279,6 +294,17 @@ def _discover_segments(
             f"Volume directories not found for UIDs: {missing}\n"
             f"Searched in: {mineru_root}"
         )
+
+    for uid, dirs in vol_dirs.items():
+        odd = _irregular_segment_dirs(dirs, uid)
+        if odd:
+            names = ", ".join(d.name for d in odd)
+            print(
+                f"  [WARN] volume_uid {uid!r} also matches {names}; these are "
+                f"merged into the volume as extra segments. Use a longer "
+                f"volume_uid or move unrelated directories out of {mineru_root} "
+                f"if that is not intended."
+            )
 
     return {
         uid: [_VolumeSegment(uid=uid, path=d, items=_load_volume(d)) for d in dirs]
@@ -291,12 +317,16 @@ def _find_boundary_after(
     patterns: Sequence[re.Pattern],
     after: tuple[int, int] | None,
     toc_max_page: int | None,
+    *,
+    heading_only: bool = False,
 ) -> tuple[int, int] | None:
     start_seg = after[0] if after else 0
     for seg_idx in range(start_seg, len(segments)):
         start_item = after[1] + 1 if after and seg_idx == after[0] else 0
         for item_idx, item in enumerate(segments[seg_idx].items[start_item:], start_item):
             if item.get("type") not in _BOUNDARY_TYPES:
+                continue
+            if heading_only and not item.get("text_level"):
                 continue
             if (
                 after is None
@@ -311,7 +341,16 @@ def _find_boundary_after(
     return None
 
 
+@dataclass(frozen=True)
+class _BoundaryTier:
+    name: str
+    patterns: list[re.Pattern]
+    # Name-only lines are weak evidence, so they must at least be headings.
+    heading_only: bool = False
+
+
 def _compile_boundary_patterns(ch: ChapterConfig) -> list[re.Pattern]:
+    """Strong (tier 1) patterns: explicit patterns, full title, label + name."""
     raw_patterns: list[str] = []
     if ch.start_pattern:
         raw_patterns.append(ch.start_pattern)
@@ -319,6 +358,95 @@ def _compile_boundary_patterns(ch: ChapterConfig) -> list[re.Pattern]:
     raw_patterns.extend(_generated_boundary_patterns(ch.title, ch.aliases))
     deduped = list(dict.fromkeys(raw_patterns))
     return [re.compile(pat, re.IGNORECASE) for pat in deduped]
+
+
+def _compile_boundary_tiers(ch: ChapterConfig) -> list[_BoundaryTier]:
+    """Boundary patterns from strongest to weakest evidence.
+
+    1. ``strong``: explicit patterns, the full title, label followed by name.
+    2. ``label``: the numbering label alone on its line ("第1章").
+    3. ``name``: the chapter name alone on its heading line ("递 推 法").
+
+    MinerU often emits label and name as two separate items, or loses the
+    label altogether, so the weaker tiers are only tried when the stronger
+    ones find nothing in the remaining range.
+    """
+    strong = _compile_boundary_patterns(ch)
+    seen = {pat.pattern for pat in strong}
+    label_raw, name_raw = _fallback_boundary_patterns([ch.title, *ch.aliases])
+
+    def compile_new(raw: list[str]) -> list[re.Pattern]:
+        fresh = [pat for pat in dict.fromkeys(raw) if pat not in seen]
+        seen.update(fresh)
+        return [re.compile(pat, re.IGNORECASE) for pat in fresh]
+
+    return [
+        _BoundaryTier("strong", strong),
+        _BoundaryTier("label", compile_new(label_raw)),
+        _BoundaryTier("name", compile_new(name_raw), heading_only=True),
+    ]
+
+
+_TIER_LABELS = {
+    "label": "tier 2, chapter number only",
+    "name": "tier 3, chapter name only",
+}
+
+
+def _find_chapter_boundary(
+    segments: Sequence[_VolumeSegment],
+    ch: ChapterConfig,
+    after: tuple[int, int] | None,
+    toc_max_page: int | None,
+) -> tuple[int, int] | None:
+    """Locate ``ch`` after ``after``, falling back to weaker evidence if needed."""
+    for tier in _compile_boundary_tiers(ch):
+        if not tier.patterns:
+            continue
+        loc = _find_boundary_after(
+            segments, tier.patterns, after, toc_max_page,
+            heading_only=tier.heading_only,
+        )
+        if loc is None:
+            continue
+        if tier.name != "strong":
+            _report_boundary_fallback(segments, ch, tier, loc)
+        return loc
+    return None
+
+
+def _report_boundary_fallback(
+    segments: Sequence[_VolumeSegment],
+    ch: ChapterConfig,
+    tier: _BoundaryTier,
+    loc: tuple[int, int],
+) -> None:
+    where = _describe_item(segments, loc)
+    print(
+        f"  [NOTE] boundary fallback ({_TIER_LABELS[tier.name]}): "
+        f"{ch.title} -> {where}"
+    )
+    # A weak line that repeats later is a sign the first hit may be a section
+    # heading or a cross-reference instead of the real chapter opening.
+    later = _find_boundary_after(
+        segments, tier.patterns, loc, None, heading_only=tier.heading_only,
+    )
+    if later is not None:
+        print(
+            f"  [WARN] {ch.title}: the same line also appears later at "
+            f"{_describe_item(segments, later)}; if the first hit is wrong, "
+            f"set start_pattern for this chapter"
+        )
+
+
+def _describe_item(segments: Sequence[_VolumeSegment], loc: tuple[int, int]) -> str:
+    segment = segments[loc[0]]
+    item = segment.items[loc[1]]
+    text = " ".join(str(item.get("text", "")).split())
+    return (
+        f"{text!r} ({segment.path.name} item {loc[1]}, "
+        f"page_idx {item.get('page_idx', '?')})"
+    )
 
 
 def _generated_boundary_patterns(title: str, aliases: Sequence[str]) -> list[str]:
@@ -329,65 +457,70 @@ def _generated_boundary_patterns(title: str, aliases: Sequence[str]) -> list[str
             continue
         patterns.append(r"^\s*" + _flexible_literal(heading) + r"\s*$")
 
-        m = _CHAPTER_LABEL_RE.match(heading)
-        if m:
-            num, unit = m.groups()
+        split = _split_heading_label(heading)
+        if split:
+            label_pattern, rest, _ = split
             _append_numbered_label_pattern(
                 patterns,
-                rf"第\s*{_flexible_number(num)}\s*{re.escape(unit)}",
-                has_title=bool(heading[m.end():].strip()),
-            )
-            continue
-
-        m = _APPENDIX_RE.match(heading)
-        if m:
-            label = m.group(1)
-            _append_numbered_label_pattern(
-                patterns,
-                rf"附\s*录\s*{_flexible_number(label)}",
-                has_title=bool(heading[m.end():].strip()),
-            )
-            continue
-
-        m = _EN_CHAPTER_RE.match(heading)
-        if m:
-            word, num = m.groups()
-            _append_numbered_label_pattern(
-                patterns,
-                rf"{_english_label_pattern(word)}\s*{_flexible_number(num)}\b",
-                has_title=bool(heading[m.end():].strip()),
-            )
-            continue
-
-        m = _EN_APPENDIX_RE.match(heading)
-        if m:
-            word, label = m.groups()
-            _append_numbered_label_pattern(
-                patterns,
-                rf"{_english_label_pattern(word)}\s*{_flexible_number(label)}\b",
-                has_title=bool(heading[m.end():].strip()),
-            )
-            continue
-
-        m = _BARE_LABEL_RE.match(heading)
-        if m:
-            label, num = m.groups()
-            _append_numbered_label_pattern(
-                patterns,
-                rf"{re.escape(label)}\s*{_flexible_number(num)}",
-                has_title=bool(heading[m.end():].strip()),
-            )
-            continue
-
-        m = _NUMBERED_RE.match(heading)
-        if m:
-            num = re.escape(m.group(1))
-            _append_numbered_label_pattern(
-                patterns,
-                num,
-                has_title=bool(heading[m.end():].strip()),
+                label_pattern,
+                has_title=bool(rest.strip()),
             )
     return patterns
+
+
+def _fallback_boundary_patterns(headings: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Return (label-only, name-only) patterns for headings of ``label name`` form."""
+    label_only: list[str] = []
+    name_only: list[str] = []
+    for heading in headings:
+        heading = str(heading).strip()
+        split = _split_heading_label(heading) if heading else None
+        if not split:
+            continue
+        label_pattern, rest, distinctive = split
+        name = rest.strip(_NAME_SEPARATORS)
+        if not name:
+            continue
+        # A bare "1" is too likely to be a stray page or list number.
+        if distinctive:
+            label_only.append(rf"^\s*{label_pattern}\s*$")
+        name_only.append(r"^\s*" + _flexible_literal(name, spaced_cjk=True) + r"\s*$")
+    return label_only, name_only
+
+
+def _split_heading_label(heading: str) -> tuple[str, str, bool] | None:
+    """Split ``heading`` into (label regex, remaining text, label_is_distinctive)."""
+    m = _CHAPTER_LABEL_RE.match(heading)
+    if m:
+        num, unit = m.groups()
+        return rf"第\s*{_flexible_number(num)}\s*{re.escape(unit)}", heading[m.end():], True
+
+    m = _APPENDIX_RE.match(heading)
+    if m:
+        label = m.group(1)
+        return rf"附\s*录\s*{_flexible_number(label)}", heading[m.end():], True
+
+    m = _EN_CHAPTER_RE.match(heading)
+    if m:
+        word, num = m.groups()
+        pattern = rf"{_english_label_pattern(word)}\s*{_flexible_number(num)}\b"
+        return pattern, heading[m.end():], True
+
+    m = _EN_APPENDIX_RE.match(heading)
+    if m:
+        word, label = m.groups()
+        pattern = rf"{_english_label_pattern(word)}\s*{_flexible_number(label)}\b"
+        return pattern, heading[m.end():], True
+
+    m = _BARE_LABEL_RE.match(heading)
+    if m:
+        label, num = m.groups()
+        return rf"{re.escape(label)}\s*{_flexible_number(num)}", heading[m.end():], True
+
+    m = _NUMBERED_RE.match(heading)
+    if m:
+        return re.escape(m.group(1)), heading[m.end():], "." in m.group(1)
+    return None
 
 
 def _append_numbered_label_pattern(
@@ -411,9 +544,42 @@ def _english_label_pattern(word: str) -> str:
     return re.escape(normalized)
 
 
-def _flexible_literal(text: str) -> str:
-    parts = [re.escape(part) for part in re.split(r"\s+", text) if part]
-    return r"\s*".join(parts)
+def _flexible_literal(text: str, *, spaced_cjk: bool = False) -> str:
+    """Literal regex that tolerates whitespace differences.
+
+    With ``spaced_cjk`` whitespace is also allowed between adjacent CJK
+    characters, because OCR often spaces out short titles ("递 推 法").
+    """
+    tokens = [part for part in re.split(r"\s+", text) if part]
+    if spaced_cjk:
+        tokens = [
+            r"\s*".join(re.escape(c) for c in _split_cjk_runs(token))
+            for token in tokens
+        ]
+    else:
+        tokens = [re.escape(token) for token in tokens]
+    return r"\s*".join(tokens)
+
+
+def _split_cjk_runs(token: str) -> list[str]:
+    """Split ``token`` so that adjacent CJK characters become separate pieces."""
+    pieces: list[str] = []
+    buf = ""
+    for ch in token:
+        if _is_cjk(ch):
+            if buf:
+                pieces.append(buf)
+                buf = ""
+            pieces.append(ch)
+        else:
+            buf += ch
+    if buf:
+        pieces.append(buf)
+    return pieces
+
+
+def _is_cjk(ch: str) -> bool:
+    return "\u4e00" <= ch <= "\u9fff" or "\u3400" <= ch <= "\u4dbf"
 
 
 def _flexible_number(text: str) -> str:
@@ -856,9 +1022,8 @@ def export(config: BookConfig, plugins: Sequence[ExportPlugin] = ()) -> None:
         missing: list[ChapterConfig] = []
         cursor: tuple[int, int] | None = None
         for ch in chapter_list:
-            patterns = _compile_boundary_patterns(ch)
             toc_limit = ch.toc_max_page if ch.toc_max_page is not None else config.toc_max_page
-            loc = _find_boundary_after(segments, patterns, cursor, toc_limit)
+            loc = _find_chapter_boundary(segments, ch, cursor, toc_limit)
             if loc is None:
                 missing.append(ch)
                 print(f"  [WARN] boundary not found: {ch.title}")

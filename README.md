@@ -223,7 +223,7 @@ uv pip install -U "mineru[all]"
 
 边界匹配建议：
 
-- 优先只写 `title`。
+- 优先只写 `title`。章号和章名被 MinerU 拆成两行、或章号被 OCR 丢掉时，会依次回退到"只有章号"和"只有章名"的整行匹配，并打印提示供核对。
 - MinerU 标题存在别名时加 `aliases`。
 - 必须手工控制正则时再写 `start_pattern` 或 `start_patterns`。
 - 正式导出保持 `allow_missing_boundaries: false`，避免章节错位后继续生成。

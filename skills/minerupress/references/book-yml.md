@@ -70,7 +70,7 @@ local_toolchain:
 
 Boundary controls:
 
-- `title`: canonical display title and default boundary source.
+- `title`: canonical display title and default boundary source. Boundaries are searched in tiers: label + name or an explicit pattern, then the label alone (`第1章`), then the chapter name alone (heading lines only, OCR spacing tolerated). A fallback prints a `[NOTE]` with the matched line and page; verify it.
 - `aliases`: alternate headings to auto-convert into boundary patterns.
 - `start_pattern`: one regex for legacy configs.
 - `start_patterns`: multiple regex alternatives.
@@ -88,5 +88,7 @@ Practical guidance:
   - https://opendatalab.github.io/MinerU/usage/cli_tools/
 - Use `minerupress headings resources/mineru --volume-uid my-book --format yaml --body-only` after the first fetch to draft chapter boundaries.
 - If TOC entries are matched too early, use a display-only `title` plus an exact `start_pattern`.
+- `headings` also reads running page headers to recover chapters whose label was lost by OCR, and prints numbering gaps and risky patterns as `warning:` lines on stderr. Read them before pasting the YAML.
+- Several `volume_uid` values may share a prefix (`vol1`, `vol10`); the longest match owns a directory. A `[WARN]` about extra matched directories means a loosely named sibling such as `algo30_full` was merged in.
 
 Supported inferred heading styles include Chinese chapter/section labels, appendices, English `Chapter`/`Chap.`/`Unit`/`Module`/`Part`/`Section`/`Lesson`/`Lecture`, English `Appendix`/`App.`, project/module/task labels, Roman numerals such as `Lesson IV`, and numeric headings such as `10.1`.

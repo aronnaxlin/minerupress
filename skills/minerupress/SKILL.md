@@ -170,6 +170,8 @@ minerupress headings resources/mineru --volume-uid my-book --format report
 minerupress headings resources/mineru --volume-uid my-book --format yaml --body-only
 ```
 
+The YAML goes to stdout with full titles (`第7章 减治法`); gaps in chapter numbering, chapters that could not be located and patterns that would resolve to another line are reported as `warning:` on stderr. Treat warnings as a to-do list before running `export`. During export, `[NOTE] boundary fallback` lines mean a chapter was matched by its number alone or its name alone; check the page it reports.
+
 ## Verification
 
 For a user workspace:

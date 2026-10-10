@@ -139,6 +139,7 @@ Guidance:
 - Use `source: official_api` with an `api:` block when starting from PDFs through the MinerU official API.
 - Use `source: local_toolchain` only when the user installed the MinerU CLI separately; MineruPress does not bundle MinerU.
 - Prefer using `title` alone first.
+- Boundaries fall back from "label + name" to the label alone (`第1章`) and then to the chapter name alone (heading lines only) and print a `[NOTE]` for every fallback; check those lines.
 - Add `aliases` when MinerU headings differ slightly.
 - Use `start_pattern` or `start_patterns` only when exact regex control is needed.
 - Keep `allow_missing_boundaries: false` for production.
