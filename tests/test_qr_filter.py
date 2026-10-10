@@ -1,9 +1,10 @@
 from pathlib import Path
 
-import numpy as np
 import pytest
 
+# opencv and numpy are optional (the `qr` extra); skip without them.
 cv2 = pytest.importorskip("cv2")
+np = pytest.importorskip("numpy")
 
 from minerupress.plugins.qr_filter import QRFilterPlugin
 
