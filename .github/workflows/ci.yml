@@ -1,9 +1,10 @@
 name: CI
 
+# Runs on pull requests, and is called by release.yml for pushes to main and
+# version tags so that a release is always gated on the same tests.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_call:
 
 jobs:
   test:
