@@ -189,3 +189,32 @@ def test_cli_check_exit_codes(tmp_path: Path, capsys) -> None:
 
     mkdocs_yml.unlink()
     assert root_main(["nav", str(book_yml), "--check"]) == 2
+
+
+def test_export_warns_about_nav_drift(tmp_path: Path, capsys) -> None:
+    book_yml = _write_book(tmp_path, ["ch01", "ch02"])
+    seg = tmp_path / "resources" / "mineru" / "demo_full"
+    seg.mkdir(parents=True)
+    (seg / "demo_content_list.json").write_text(
+        '[{"type": "text", "text": "第1章 概述", "text_level": 1, "page_idx": 20},'
+        ' {"type": "text", "text": "第2章 概述", "text_level": 1, "page_idx": 30}]',
+        encoding="utf-8",
+    )
+    _write_mkdocs(tmp_path, "  - 第1章: chapters/ch01.md")
+
+    assert root_main(["export", str(book_yml)]) == 0
+
+    out = capsys.readouterr().out
+    assert "[WARN] mkdocs.yml" in out
+    assert "ch02" in out
+
+
+def test_cli_check_says_so_when_mkdocs_has_no_nav(tmp_path: Path, capsys) -> None:
+    book_yml = _write_book(tmp_path, ["ch01"])
+    (tmp_path / "mkdocs.yml").write_text("site_name: Demo\n", encoding="utf-8")
+
+    assert root_main(["nav", str(book_yml), "--check"]) == 0
+
+    out = capsys.readouterr().out
+    assert "no nav section" in out
+    assert "in sync" not in out

@@ -288,6 +288,13 @@ def _report_missing_boundaries(
     print("\n".join(lines), file=sys.stderr)
 
 
+def _warn_nav_drift(book_yml_arg: str, config) -> None:
+    """After an export, flag chapters that mkdocs.yml's nav does not list."""
+    from . import nav
+
+    nav.warn_if_nav_drift(Path(book_yml_arg), config)
+
+
 def _run_export(args: argparse.Namespace) -> int:
     config, plugins, source_cfg = _load_book_runtime(
         args.book_yml,
@@ -304,6 +311,7 @@ def _run_export(args: argparse.Namespace) -> int:
     except MinerUAPIError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
+    _warn_nav_drift(args.book_yml, config)
     return 0
 
 
@@ -323,6 +331,7 @@ def _run_fetch(args: argparse.Namespace) -> int:
     except BoundaryNotFoundError as exc:
         _report_missing_boundaries(exc, config, args.book_yml, fetched=True)
         return 1
+    _warn_nav_drift(args.book_yml, config)
     return 0
 
 

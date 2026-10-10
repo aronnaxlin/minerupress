@@ -250,6 +250,10 @@ def run(book_yml: Path, mkdocs_yml: Path | None, check: bool) -> int:
         return 2
 
     if not problems:
+        if not load_mkdocs_config(target).get("nav"):
+            # Without nav: MkDocs builds the nav from the file tree.
+            print(f"{target}: no nav section; nothing to compare with {book_yml.name}")
+            return 0
         print(f"{target}: nav is in sync with {len(config.chapters)} chapters in {book_yml.name}")
         return 0
     for problem in problems:

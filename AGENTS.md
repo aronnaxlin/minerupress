@@ -149,3 +149,10 @@ pytest
 - `minerupress export --fetch` 是兼容/便捷入口；用户文档主流程优先讲清楚 `fetch` 和 `export` 的区别。
 - `core.export()` 会根据 UID 前缀在 `mineru_root` 下自动发现一个或多个分册目录，并按自然顺序顺推章节边界。
 - `core.export()` 每次都会重建 `docs/chapters/` 和 `docs/images/`，不要在这些目录里放手工长期维护内容。
+- `core.export()` 找不到章节边界时抛 `BoundaryNotFoundError`；CLI 捕获后给出下一步提示并以非零退出，不打印 traceback。
+- 章节边界按三级回退查找：强模式（显式 `start_pattern`、完整标题、章号+章名）→ 只有章号的整行 → 只有章名且带 `text_level` 的整行；用到回退时打印 `[NOTE]`。
+- 多个 `volume_uid` 命中同一目录时取最长前缀。
+- `official_api` 的续跑状态在工作区的 `.minerupress/fetch-state.json`；`minerupress fetch --force` 忽略它并重新上传。
+- 工作区 `.env` 由 CLI 在加载 `book.yml` 之前读取（先 `book.yml` 所在目录，再当前目录，不覆盖已有环境变量）；直接调用 `load_book_config` 的库用户需要自己加载。
+- 图片类条目包括 `image` 和带 `img_path` 的 `chart`，都会走 `on_image`；caption/footnote 同时兼容 `image_*` 和 `img_*` 字段名。
+- 导出完成后 CLI 会用 `nav.warn_if_nav_drift` 检查 `mkdocs.yml` 的章节 nav，只警告、不改写。

@@ -122,7 +122,7 @@ minerupress headings resources/mineru --format yaml --body-only
 
 ## 章节没有出现在站点导航里
 
-`mkdocs build --strict` 对没有进入 `nav` 的页面只打印 INFO，不会失败，所以漏写的章节会静默缺失。运行：
+`mkdocs build --strict` 对没有进入 `nav` 的页面只打印 INFO，不会失败，所以漏写的章节会静默缺失。`minerupress export` 和 `minerupress fetch` 导出完成后会自动检查 `book.yml` 同目录的 `mkdocs.yml`，发现不一致时打印 `[WARN]`。也可以单独运行：
 
 ```bash
 minerupress nav book.yml --check
