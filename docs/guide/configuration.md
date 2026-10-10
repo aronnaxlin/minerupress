@@ -31,7 +31,8 @@ chapters:
 - `volume_uid`：顶层默认逻辑分册 UID。章节未单独设置时继承它。
 - `toc_max_page`：首次查找章节边界时跳过前几页目录页；`0` 表示不跳过。
 - `allow_missing_boundaries`：默认 `false`。任何章节边界缺失都会失败。
-- `plugins`：插件列表，可以写内置短名或自定义插件 dotted import 路径。
+- `page_footnotes`：页面脚注的处理方式，默认 `skip`（不输出）。设为 `paragraph` 时保留以脚注标记开头的 `page_footnote`，以引用块形式放在所在页最后一个完整段落之后，详见 [导出流程](export-pipeline.md)。
+- `plugins`：插件列表，可以写内置短名或自定义插件 dotted import 路径。需要传参时写成单键映射，例如 `- qr_filter:` 下缩进 `max_side: 250`，详见 [插件系统](plugins.md)。
 - `chapters`：章节列表，至少要有 `slug` 和 `title`。
 
 ## 章节字段
@@ -89,9 +90,23 @@ chapters:
 minerupress headings resources/mineru --volume-uid javaweb --format yaml --body-only
 ```
 
-它会优先使用正文页上的独立章号行生成 `start_pattern`，降低目录页 TOC 误匹配的概率。
+它会优先使用正文页上的独立章号行生成 `start_pattern`，降低目录页 TOC 误匹配的概率，并输出形如 `第7章 减治法` 的完整 `title`。
 
-为避免把附录习题答案区的孤立 `第1章`、`Chapter 1`、`10.1` 等分节误判为正文边界，自动模式在 `title` 含有标题文字时，会要求编号后也出现标题文字。确实只有裸章号的正文边界，可以显式写 `start_pattern`。
+- 独立的章号行（`第1章`）不论 `text_level` 是几都会识别。
+- 章号被 OCR 丢掉的章节，会根据页眉（`type: header`）里的"章号 + 章名"找回：在该章页眉首次出现之前、上一章之后，取文本等于章名（忽略空白）的行作为开篇。
+- 章号不连续、重复，或某个 `start_pattern` 在导出时会命中别的行，会在 stderr 给出 `warning:`，不会混进 YAML 正文。
+
+### 分级回退
+
+边界查找不要求 MinerU 把章号和章名放在同一行。每一章依次尝试三级模式，只有更强的一级在剩余范围内找不到时才回退：
+
+1. 强模式：显式 `start_pattern` / `start_patterns`、完整标题、"章号 + 章名"（`第1章 绪论`）。
+2. 只有章号的整行（`第1章`）。
+3. 只有章名的整行，允许字间空白（`递 推 法`），且这一行必须带 `text_level`（是标题而不是正文段落）。
+
+用到回退时，导出会打印一行 `[NOTE] boundary fallback ...`，包含章节、级别、命中的文本和页码，请据此核对。如果第 2、3 级命中的行在之后还会再出现，会额外打印 `[WARN]`，说明第一个命中可能是某个小节标题或交叉引用，此时用 `start_pattern` 钉住正确的行。
+
+为避免把附录习题答案区的孤立 `第1章`、`Chapter 1`、`10.1` 等误判为正文边界，只有在第 1 级找不到时才会考虑它们；单独一个整数（如 `1 绪论` 里的 `1`）不会作为第 2 级模式。
 
 ## `source` 选择
 
@@ -122,6 +137,10 @@ volume_uid: javaweb
 
 导出器就会把这些物理目录按自然顺序拼接成一个逻辑分册来寻找边界和导出内容。
 
+多个 `volume_uid` 互为前缀时（如 `vol1` 和 `vol10`），目录归属于匹配最长的那个 UID。
+
+只配置一个 `algo3` 时，`algo30_full` 这类无关目录也会因为前缀相同被并入。当 `volume_uid` 已有 `algo3`、`algo3_full`、`algo3_partN` 这样规整的目录，又匹配到其他名字的目录时，导出会打印 `[WARN]` 列出它们；用更长的 `volume_uid`，或把无关目录移出 `mineru_root`。
+
 ## `api:` 配置
 
 当 `source: official_api` 时，可直接调用 MinerU 云端 API：
@@ -132,13 +151,16 @@ api:
   enable_formula: true
   enable_table: true
   model_version: vlm
+  poll_timeout: 600
   sources:
     javaweb: resources/pdfs/javaweb.pdf
 ```
 
 说明：
 
-- `token` 留空时会读取 `MINERU_API_TOKEN`
+- `token` 留空时会读取 `MINERU_API_TOKEN`（可写在 `book.yml` 同目录的 `.env` 里）
+- `poll_timeout` 是每次 `fetch` 等待解析完成的最长秒数，默认 `600`；超时不会丢任务，重跑 `fetch` 会接着等
+- 上传后的批次记录在 `.minerupress/fetch-state.json`，重跑 `fetch` 会续跑；`minerupress fetch --force` 忽略记录并重新上传
 - `sources` 的 key 需要和章节使用的 `volume_uid` 对应
 - 相对路径同样按 `book.yml` 所在目录解析
 

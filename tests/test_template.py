@@ -39,6 +39,31 @@ def test_template_defaults_to_existing_uploaded_result_mode() -> None:
     assert book["chapters"] == [
         {
             "slug": "ch01-overview",
-            "title": "第1章 概述",
+            "title": "示例章节（请用 minerupress headings 的输出替换）",
         }
     ]
+
+
+def test_fresh_workspace_asks_for_chapters_instead_of_guessing(tmp_path: Path, capsys) -> None:
+    # The placeholder chapter must not match a real book: with the boundary
+    # fallbacks, a title such as "第1章 概述" would hit the book's own "第1章"
+    # line and silently export the whole book as one chapter.
+    from minerupress import cli
+
+    workspace = tmp_path / "my-book"
+    assert cli.root_main(["init", str(workspace)]) == 0
+    result = workspace / "resources" / "mineru" / "my-book_full"
+    result.mkdir(parents=True)
+    (result / "demo_content_list.json").write_text(
+        '[{"type": "text", "text": "第1章", "text_level": 2, "page_idx": 18},'
+        ' {"type": "text", "text": "概述", "text_level": 1, "page_idx": 18},'
+        ' {"type": "text", "text": "正文。", "page_idx": 18},'
+        ' {"type": "text", "text": "第2章 进阶", "text_level": 1, "page_idx": 30}]',
+        encoding="utf-8",
+    )
+
+    assert cli.root_main(["export", str(workspace / "book.yml")]) == 1
+
+    err = capsys.readouterr().err
+    assert "Chapter boundaries not found" in err
+    assert "minerupress headings" in err

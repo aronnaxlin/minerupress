@@ -83,27 +83,33 @@ minerupress headings resources/mineru --format yaml --body-only
 
 这是预期行为。普通正文里的 `<span>`、`<table>`、`<div>` 等会被自动转义，避免被 Markdown 误当成真实 HTML。只有表格的 `table_body` 这类结构化内容会保留原始 HTML。
 
+## 文字里的方括号加圆括号显示成链接或告警
+
+形如 `next[j](1≤j≤m-1)` 的 OCR 文本会被导出器转义为 `next[j\](1≤j≤m-1)`，不应再被渲染成链接。公式 `$...$` 内部不转义。如果仍看到 `unrecognized relative link` 之类的提示，先确认章节 Markdown 是否由当前版本重新导出。
+
 ## 图片丢失
 
 常见原因：
 
 - 源目录 `images/` 中对应文件不存在
-- 被 `qr_filter` 或自定义插件过滤掉了
+- 被 `qr_filter` 或自定义插件过滤掉了（图的 caption 和 footnote 会一起丢弃；`qr_filter` 会在导出日志里逐行打印被丢弃图片的文件名和尺寸）
+- 图是 `chart` 类型：从当前版本起会和 `image` 一样复制并输出
 - 同名图片冲突后文件名被自动改写，而你在外部又手工引用了旧名字
 
 更稳妥的做法是检查导出日志和源 `img_path`，不要手改生成目录。
 
-## 云端抓取时出现权限错误
+## 云端抓取下载失败 / 超时
 
-一个典型报错是自动分片时试图把 `*_part1.pdf`、`*_part2.pdf` 写回原始 PDF 所在目录，但那个目录来自网盘、系统受保护路径或只读挂载。
+`minerupress fetch` 在上传后会把批次 ID 写进 `.minerupress/fetch-state.json`，所以下载失败或轮询超时后，**直接重跑同一条命令**即可续跑，不会重新上传。
 
-推荐处理方式不是改代码，而是改工作流：
+- 报错指出下载 host（如 `cdn-mineru.openxlab.org.cn`）且 API 本身正常：多半是本机代理或 DNS 规则单独拦截了这个 CDN 域名。调整代理规则后重跑
+- 超时报错列出了 batch_id：MinerU 仍在解析，重跑即可；书很大时调大 `api.poll_timeout`
+- 提示保存的批次已过期或查不到：用 `minerupress fetch book.yml --force` 重新上传
+- 提示 `MinerU API token required`：确认 `MINERU_API_TOKEN` 在 `book.yml` 同目录的 `.env` 里，或已在 shell 中设置
 
-1. 先把原始 PDF 复制到当前工作区的 `resources/pdfs/`
-2. 让 `api.sources` 指向这份本地副本
-3. 再执行 `minerupress fetch`
+## `fetch` 结束时提示章节边界缺失
 
-这样分片 PDF、抓取结果和生成物都会落在同一个隔离工作区里。
+新书模板只有一个占位章节，`fetch` 在抓取完成后导出时找不到边界，会以非零退出码结束。这不是抓取失败：`resources/mineru/` 已经就绪。按提示运行 `minerupress headings resources/mineru --volume-uid <uid> --format yaml --body-only`，修改 `chapters`，再运行 `minerupress export book.yml`。
 
 ## 如何判断一次跑书是否真的完成
 
@@ -114,11 +120,21 @@ minerupress headings resources/mineru --format yaml --body-only
 - `mkdocs build --strict` 成功
 - 如需留痕，`reports/fingerprints.json` 已生成
 
+## 章节没有出现在站点导航里
+
+`mkdocs build --strict` 对没有进入 `nav` 的页面只打印 INFO，不会失败，所以漏写的章节会静默缺失。`minerupress export` 和 `minerupress fetch` 导出完成后会自动检查 `book.yml` 同目录的 `mkdocs.yml`，发现不一致时打印 `[WARN]`。也可以单独运行：
+
+```bash
+minerupress nav book.yml --check
+```
+
+它会列出没进 nav 的章节、nav 里指向 `book.yml` 没有的章节文件、以及章节顺序不一致的地方。不带 `--check` 时打印可以直接贴进 `mkdocs.yml` 的章节 nav 片段。
+
 ## `mkdocs build --strict` 失败
 
 优先检查：
 
-- `mkdocs.yml` 导航是否引用了不存在的章节文件
+- `mkdocs.yml` 导航是否引用了不存在的章节文件（`minerupress nav book.yml --check` 可以检查）
 - 文档里是否有坏链接
 - 生成内容是否包含不合法 Markdown/HTML 结构
 - 公式、表格、代码块是否被异常截断

@@ -1,0 +1,12 @@
+# 密钥：不要提交
+.env
+.env.local
+
+# MineruPress 本地状态（fetch 续跑记录：批次 ID、已下载分片）
+.minerupress/
+
+# MkDocs 构建结果
+site/
+
+# Wrangler 本地缓存
+.wrangler/

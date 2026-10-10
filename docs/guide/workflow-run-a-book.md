@@ -60,7 +60,7 @@ cd .temp/book-runs/software-testing-methods
 resources/pdfs/book.pdf
 ```
 
-原因是 MineruPress 在页数超限时会自动拆分 PDF，分片文件默认写到源 PDF 所在目录。若源文件在受限路径，常见结果就是分片阶段报 `PermissionError`。
+原因：网盘同步目录、外部共享路径下的文件，路径、修改时间可能随同步变化；`fetch` 的续跑记录就是按源 PDF 的路径、大小和修改时间识别“同一份文件”的。放进工作区后更稳定，也方便整个目录一起归档。分片 PDF 本身只写到系统临时目录，不会落在源 PDF 旁边。
 
 ## 3. 写 `.env`
 
@@ -70,7 +70,7 @@ resources/pdfs/book.pdf
 MINERU_API_TOKEN=...
 ```
 
-如果这次不打算部署，不要配置 Cloudflare 相关生产凭据。
+`.env` 放在 `book.yml` 同一目录。shell 里已设置的同名环境变量优先于它。如果这次不打算部署，不要配置 Cloudflare 相关生产凭据。
 
 ## 4. 先写一份“抓取优先”的 `book.yml`
 
@@ -89,6 +89,7 @@ api:
   enable_formula: true
   enable_table: true
   model_version: vlm
+  poll_timeout: 600   # 等待解析的最长秒数
   sources:
     software-testing-methods: resources/pdfs/software-testing-methods.pdf
 
@@ -118,6 +119,10 @@ minerupress fetch book.yml
 5. 下载 ZIP 结果
 6. 解压到 `resources/mineru/<volume_uid>_partN/`
 7. 顺带跑一次导出
+
+如果下载中途失败（网络、代理、DNS），直接重跑同一条命令即可：已上传的批次记录在 `.minerupress/fetch-state.json`，不会重新上传。想强制重新上传解析，用 `minerupress fetch book.yml --force`。
+
+占位章节在第一轮找不到边界是正常的：`fetch` 会以非零退出码结束，并打印“来源已就绪，下一步运行 `headings`”。结果已经在 `resources/mineru/` 里，继续下一步即可。
 
 ## 6. 从 MinerU 输出里确认真实章节边界
 
@@ -190,6 +195,20 @@ nav:
     - 第2章 软件测试的基本概念: chapters/ch02-basic-concepts.md
 ```
 
+不想手写的话，让 MineruPress 按 `book.yml` 打印章节片段，直接贴进 `mkdocs.yml`：
+
+```bash
+minerupress nav book.yml
+```
+
+之后每次增删章节，可以用 `--check` 确认 nav 没漏章、没指向不存在的章节文件、顺序和 `book.yml` 一致：
+
+```bash
+minerupress nav book.yml --check
+```
+
+这一步很值得做：`mkdocs build --strict` 对没有进 `nav` 的页面只给 INFO，不会失败，漏写的章节会静默缺失。`minerupress nav` 只读，不会改写 `mkdocs.yml`；`mkdocs.yml` 里的 `!!python/name:...` 之类 Material 常见标签也能正常解析。
+
 并补一个简单首页 `docs/index.md`。
 
 ## 9. 重跑标准导出
@@ -240,19 +259,19 @@ software-testing-methods/
 
 ## 最常见的两个坑
 
-## 坑 1：PDF 在外部目录，分片时报权限错误
+## 坑 1：PDF 在网盘或外部目录，续跑记录总是失效
 
 现象：
 
-- `minerupress fetch` 在 `_part1.pdf`、`_part2.pdf` 写入时报 `PermissionError`
+- 每次重跑 `minerupress fetch` 都重新上传，而不是续跑
 
 原因：
 
-- 自动分片默认写回源 PDF 所在目录
+- 续跑记录按源 PDF 的路径、大小和修改时间匹配；网盘同步或移动文件会改变其中之一
 
 解决：
 
-- 先把 PDF 复制到工作区内的 `resources/pdfs/`
+- 先把 PDF 复制到工作区内的 `resources/pdfs/`，之后不要再替换它
 
 ## 坑 2：目录页抢先命中章节边界
 

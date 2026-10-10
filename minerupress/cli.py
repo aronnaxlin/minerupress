@@ -16,12 +16,23 @@ from importlib import resources
 from pathlib import Path
 from typing import Sequence
 
-from .core import export
+from dotenv import load_dotenv
+
+from .api_client import MinerUAPIError
+from .core import BoundaryNotFoundError, export
 from .loader import SourceConfig, load_book_config
 
+FETCH_STATE_RELPATH = Path(".minerupress") / "fetch-state.json"
 
-def _do_official_api_prepare(config, api_cfg) -> None:
-    """Upload PDFs via MinerU API and populate mineru_root."""
+
+def _do_official_api_prepare(
+    config,
+    api_cfg,
+    *,
+    base_dir: Path | None = None,
+    force: bool = False,
+) -> None:
+    """Upload PDFs via MinerU API (or resume saved batches) and populate mineru_root."""
     from .api_client import MinerUClient
 
     kwargs = {}
@@ -41,12 +52,20 @@ def _do_official_api_prepare(config, api_cfg) -> None:
             "Add volume_uid -> pdf_path entries under 'api.sources' in book.yml."
         )
 
+    state_path = base_dir / FETCH_STATE_RELPATH if base_dir is not None else None
     config.mineru_root.mkdir(parents=True, exist_ok=True)
     for uid, pdf_str in api_cfg.sources.items():
         pdf_path = Path(pdf_str)
         if not pdf_path.exists():
             raise FileNotFoundError(f"API source PDF not found: {pdf_path}")
-        out_dirs = client.fetch(pdf_path=pdf_path, dest=config.mineru_root)
+        out_dirs = client.fetch(
+            pdf_path=pdf_path,
+            dest=config.mineru_root,
+            uid=uid,
+            state_path=state_path,
+            force=force,
+            poll_timeout=api_cfg.poll_timeout,
+        )
         if not out_dirs:
             raise RuntimeError(f"MinerU fetch returned no output directories for {pdf_path}")
         # Rename every fetched segment so core.export can discover all parts by
@@ -134,7 +153,13 @@ def _do_local_toolchain_prepare(config, local_cfg) -> None:
                 print(f"  [local] copied -> {target.name}")
 
 
-def _do_prepare(config, source_cfg: SourceConfig) -> None:
+def _do_prepare(
+    config,
+    source_cfg: SourceConfig,
+    *,
+    base_dir: Path | None = None,
+    force: bool = False,
+) -> None:
     if source_cfg.kind == "uploaded_result":
         print("  [source] uploaded_result selected; using existing mineru_root contents")
         return
@@ -147,7 +172,7 @@ def _do_prepare(config, source_cfg: SourceConfig) -> None:
         return
     if source_cfg.api is None:
         raise ValueError("source=official_api requires an 'api:' block in book.yml.")
-    _do_official_api_prepare(config, source_cfg.api)
+    _do_official_api_prepare(config, source_cfg.api, base_dir=base_dir, force=force)
 
 
 def _clear_existing_uid_outputs(
@@ -194,12 +219,26 @@ def _add_book_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _load_workspace_dotenv(book_yml: Path) -> None:
+    """
+    Load secrets from <book.yml dir>/.env, then ./.env as a fallback.
+
+    Real environment variables always win (override=False), and the workspace
+    file wins over the current directory's.  Must run before load_book_config,
+    because plugins read their environment when they are constructed.
+    """
+    # utf-8-sig: Windows editors like to prepend a BOM to .env files.
+    for env_file in (book_yml.resolve().parent / ".env", Path.cwd() / ".env"):
+        load_dotenv(env_file, override=False, encoding="utf-8-sig")
+
+
 def _load_book_runtime(book_yml_arg: str, allow_missing_boundaries: bool):
     book_yml = Path(book_yml_arg)
     if not book_yml.exists():
         print(f"Error: {book_yml} not found.", file=sys.stderr)
         raise SystemExit(1)
 
+    _load_workspace_dotenv(book_yml)
     config, plugins, source_cfg = load_book_config(book_yml)
     if allow_missing_boundaries:
         config.allow_missing_boundaries = True
@@ -210,14 +249,69 @@ def _load_book_runtime(book_yml_arg: str, allow_missing_boundaries: bool):
     return config, plugins, source_cfg
 
 
+def _display_path(path: Path) -> str:
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
+def _report_missing_boundaries(
+    exc: BoundaryNotFoundError,
+    config,
+    book_yml_arg: str,
+    *,
+    fetched: bool,
+) -> None:
+    """Explain a boundary failure without a traceback."""
+    mineru_root = _display_path(config.mineru_root)
+    uids = list(dict.fromkeys(ch.volume_uid for ch in config.chapters))
+    lead = (
+        "MinerU output is ready, only the chapter configuration is missing or wrong."
+        if fetched
+        else "The MinerU output was found, but the chapter configuration does not match it."
+    )
+    commands = [
+        f"minerupress headings {mineru_root} --volume-uid {uid} --format yaml --body-only"
+        for uid in uids
+    ]
+    lines = [f"Error: {exc}", lead, f"MinerU output: {mineru_root}", "Next steps:"]
+    if len(commands) == 1:
+        lines.append(f"  1. {commands[0]}")
+    else:
+        lines.append("  1. inspect the headings of each volume:")
+        lines += [f"       {command}" for command in commands]
+    lines += [
+        "  2. update `chapters` in book.yml with the headings it prints",
+        f"  3. minerupress export {book_yml_arg}",
+    ]
+    print("\n".join(lines), file=sys.stderr)
+
+
+def _warn_nav_drift(book_yml_arg: str, config) -> None:
+    """After an export, flag chapters that mkdocs.yml's nav does not list."""
+    from . import nav
+
+    nav.warn_if_nav_drift(Path(book_yml_arg), config)
+
+
 def _run_export(args: argparse.Namespace) -> int:
     config, plugins, source_cfg = _load_book_runtime(
         args.book_yml,
         args.allow_missing_boundaries,
     )
-    if args.fetch:
-        _do_prepare(config, source_cfg)
-    export(config, plugins)
+    base_dir = Path(args.book_yml).resolve().parent
+    try:
+        if args.fetch:
+            _do_prepare(config, source_cfg, base_dir=base_dir, force=getattr(args, "force", False))
+        export(config, plugins)
+    except BoundaryNotFoundError as exc:
+        _report_missing_boundaries(exc, config, args.book_yml, fetched=args.fetch)
+        return 1
+    except MinerUAPIError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    _warn_nav_drift(args.book_yml, config)
     return 0
 
 
@@ -226,8 +320,18 @@ def _run_fetch(args: argparse.Namespace) -> int:
         args.book_yml,
         args.allow_missing_boundaries,
     )
-    _do_prepare(config, source_cfg)
-    export(config, plugins)
+    base_dir = Path(args.book_yml).resolve().parent
+    try:
+        _do_prepare(config, source_cfg, base_dir=base_dir, force=getattr(args, "force", False))
+    except MinerUAPIError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+    try:
+        export(config, plugins)
+    except BoundaryNotFoundError as exc:
+        _report_missing_boundaries(exc, config, args.book_yml, fetched=True)
+        return 1
+    _warn_nav_drift(args.book_yml, config)
     return 0
 
 
@@ -260,6 +364,16 @@ def _run_fingerprint(args: argparse.Namespace) -> int:
             args.out,
         ],
         prog="minerupress fingerprint",
+    )
+
+
+def _run_nav(args: argparse.Namespace) -> int:
+    from . import nav
+
+    return nav.run(
+        Path(args.book_yml),
+        Path(args.mkdocs_yml) if args.mkdocs_yml else None,
+        args.check,
     )
 
 
@@ -296,11 +410,24 @@ def _configure_export_parser(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Prepare the configured source before exporting (official API or local toolchain).",
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="With --fetch: ignore saved fetch state and upload to the MinerU API again.",
+    )
     parser.set_defaults(handler=_run_export, command="export")
 
 
 def _configure_fetch_parser(parser: argparse.ArgumentParser) -> None:
     _add_book_args(parser)
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help=(
+            "Ignore saved fetch state (.minerupress/fetch-state.json) and upload "
+            "to the MinerU API again, even if results already exist."
+        ),
+    )
     parser.set_defaults(handler=_run_fetch, command="fetch")
 
 
@@ -341,6 +468,25 @@ def _configure_fingerprint_parser(parser: argparse.ArgumentParser) -> None:
     parser.set_defaults(handler=_run_fingerprint, command="fingerprint")
 
 
+def _configure_nav_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "book_yml",
+        nargs="?",
+        default="book.yml",
+        help="Path to book.yml (default: book.yml)",
+    )
+    parser.add_argument(
+        "--mkdocs-yml",
+        help="mkdocs.yml to compare against (default: mkdocs.yml next to book.yml).",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Compare mkdocs.yml nav with the chapters; exit 1 on drift, 2 on errors.",
+    )
+    parser.set_defaults(handler=_run_nav, command="nav")
+
+
 def _configure_init_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "directory",
@@ -359,7 +505,7 @@ def _configure_init_parser(parser: argparse.ArgumentParser) -> None:
 def build_parser(prog: str = "minerupress") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
-        description="MineruPress CLI for initializing, exporting, fetching, heading inspection, and fingerprints.",
+        description="MineruPress CLI for initializing, exporting, fetching, heading inspection, nav checks, and fingerprints.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -397,6 +543,16 @@ def build_parser(prog: str = "minerupress") -> argparse.ArgumentParser:
         description="Fingerprint docs/ Markdown files.",
     )
     _configure_fingerprint_parser(fingerprint_parser)
+
+    nav_parser = subparsers.add_parser(
+        "nav",
+        help="Print the chapter nav for mkdocs.yml, or check it against book.yml.",
+        description=(
+            "Print the mkdocs.yml nav section for the chapters in book.yml, "
+            "or with --check report chapters missing from or out of order in mkdocs.yml."
+        ),
+    )
+    _configure_nav_parser(nav_parser)
 
     return parser
 

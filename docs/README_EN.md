@@ -20,14 +20,15 @@ Recommended install path:
 
 ```bash
 pip install "minerupress[all]"
-pip install mkdocs mkdocs-material
 ```
+
+`[all]` also installs the site dependencies (`mkdocs>=1.6,<2` and `mkdocs-material>=9.5,<10`, which keeps you clear of the MkDocs 2.0 incompatibilities). Use `minerupress[site]` if you only want those.
 
 For an isolated CLI install:
 
 ```bash
 pipx install 'minerupress[all]'
-pipx inject minerupress mkdocs mkdocs-material
+pipx inject minerupress mkdocs --include-apps   # only exposes the mkdocs command
 ```
 
 For toolchain development instead of normal usage:
@@ -44,7 +45,8 @@ Optional dependency groups:
 |---|---|---|
 | `qr` | `opencv-python` | QR image filtering |
 | `cjk` | `pangu` | Chinese/ASCII spacing |
-| `all` | both | common full setup |
+| `site` | `mkdocs>=1.6,<2`, `mkdocs-material>=9.5,<10` | `mkdocs serve` / `mkdocs build --strict` |
+| `all` | all of the above | common full setup |
 
 Python `>=3.11` is required.
 
@@ -112,6 +114,15 @@ Inspect heading candidates and generate chapter YAML:
 minerupress headings resources/mineru --volume-uid javaweb --format yaml --body-only
 ```
 
+Print the chapter nav for `mkdocs.yml`, or check the existing nav against `book.yml` (read-only; `mkdocs.yml` is never rewritten):
+
+```bash
+minerupress nav book.yml
+minerupress nav book.yml --check
+```
+
+`--check` exits non-zero when a chapter is missing from the nav, the nav points at a chapter file that `book.yml` does not define, or the order differs. `mkdocs build --strict` only reports pages missing from `nav` at INFO level, so run it after adding or removing chapters.
+
 The CLI now uses the unified `minerupress <subcommand>` form. Legacy wrappers such as `minerupress-export`, `minerupress-fetch`, `minerupress-headings`, `mineru-export`, and `mineru-fetch` remain available for backward compatibility.
 
 ## Minimal `book.yml`
@@ -139,15 +150,27 @@ Guidance:
 - Use `source: official_api` with an `api:` block when starting from PDFs through the MinerU official API.
 - Use `source: local_toolchain` only when the user installed the MinerU CLI separately; MineruPress does not bundle MinerU.
 - Prefer using `title` alone first.
+- Boundaries fall back from "label + name" to the label alone (`第1章`) and then to the chapter name alone (heading lines only) and print a `[NOTE]` for every fallback; check those lines.
 - Add `aliases` when MinerU headings differ slightly.
 - Use `start_pattern` or `start_patterns` only when exact regex control is needed.
 - Keep `allow_missing_boundaries: false` for production.
 
 ## Built-in Plugins
 
-- `qr_filter`: removes small QR-code images with OpenCV.
+- `qr_filter`: removes small QR-code images with OpenCV. It tries the original image plus upscaled, bordered and binarised variants, and only accepts a hit whose quad fills most of the image and is close to square, so small matrices, chessboards and graph drawings are kept. Every dropped image is printed with its file name and size.
 - `cjk_spacing`: inserts spacing between CJK and ASCII text with `pangu`, while protecting LaTeX spans.
 - `cf_pages`: runs `mkdocs build --strict` and deploys to Cloudflare Pages.
+
+Pass options to a plugin with a single-key mapping; plain names keep working, and `cf_pages` still reads its settings from `deploy:`:
+
+```yaml
+plugins:
+  - qr_filter:
+      max_side: 250     # images larger than this are never treated as QR codes
+  - cjk_spacing
+```
+
+An unknown option name fails with an error that lists the options the plugin accepts. Custom dotted-path plugins receive options the same way, as `__init__` keyword arguments.
 
 ## Documentation
 

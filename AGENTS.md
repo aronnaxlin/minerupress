@@ -19,11 +19,10 @@ MineruPress 是通用的 `MinerU -> Markdown -> MkDocs Material` 图书发布工
 
 ## 正确使用工作流
 
-普通用户优先使用发布包，不需要 clone 工具链仓库：
+普通用户优先使用发布包，不需要 clone 工具链仓库（`[all]` 已包含 `mkdocs>=1.6,<2` 和 `mkdocs-material>=9.5,<10`；只要站点依赖可以装 `minerupress[site]`）：
 
 ```bash
 pip install "minerupress[all]"
-pip install mkdocs mkdocs-material
 minerupress init my-book
 cd my-book
 ```
@@ -41,8 +40,9 @@ cd my-book
 1. 准备来源，拿到 `resources/mineru/`。
 2. 运行 `minerupress headings resources/mineru --volume-uid <uid> --format yaml --body-only`，根据真实标题结构修 `chapters`。
 3. 运行 `minerupress export book.yml`。
-4. 运行 `mkdocs build --strict`。
-5. 需要留痕时运行 `minerupress fingerprint --docs-dir docs --out reports/fingerprints.json`。
+4. 运行 `minerupress nav book.yml --check` 确认 `mkdocs.yml` 的 nav 没漏章节（`mkdocs build --strict` 对 nav 漏章只给 INFO）。
+5. 运行 `mkdocs build --strict`。
+6. 需要留痕时运行 `minerupress fingerprint --docs-dir docs --out reports/fingerprints.json`。
 
 ## 贡献者工作流
 
@@ -51,7 +51,7 @@ cd my-book
 ```bash
 git clone https://github.com/aronnaxlin/minerupress.git
 cd minerupress
-pip install -e ".[dev]"
+pip install -e ".[dev,all]"
 ```
 
 修改后至少运行：
@@ -68,7 +68,8 @@ pytest
 - `minerupress/`：Python 包源码。
 - `minerupress/core.py`：导出引擎，负责分册发现、章节边界查找、item 转 Markdown、图片复制和插件 hook。
 - `minerupress/loader.py`：解析 `book.yml`，组装 `BookConfig`、插件实例和 `SourceConfig`。
-- `minerupress/cli.py`：统一 CLI 入口，支持 `minerupress init|export|fetch|headings|fingerprint`，并兼容旧命令。
+- `minerupress/cli.py`：统一 CLI 入口，支持 `minerupress init|export|fetch|headings|nav|fingerprint`，并兼容旧命令。
+- `minerupress/nav.py`：根据 `book.yml` 章节生成 `mkdocs.yml` 的 nav 片段，检查现有 nav 是否漏章、指向不存在的章节或顺序不一致；只读，不改写 `mkdocs.yml`。
 - `minerupress/api_client.py`：MinerU API 客户端，包含上传、轮询、下载和 PDF 分片。
 - `minerupress/fingerprint.py`：对 `docs/` 下 Markdown 生成 SHA-256 指纹并输出差异。
 - `minerupress/plugins/`：内置插件和 `ExportPlugin` 基类。
@@ -102,7 +103,8 @@ pytest
 - `volume_uid`：顶层默认逻辑分册 UID。章节不写 `volume_uid` 时继承它。
 - `toc_max_page`：查找每个逻辑 UID 的第一个章节边界时跳过的目录页阈值；`0` 表示不跳过。
 - `allow_missing_boundaries`：默认 `false`。严格模式下任一章节边界缺失会失败。
-- `plugins`：内置插件名或自定义插件 dotted import 路径。
+- `page_footnotes`：默认 `skip`。设为 `paragraph` 时把以脚注标记开头的 `page_footnote` 作为引用块放在所在页最后一个完整段落之后。
+- `plugins`：内置插件名或自定义插件 dotted import 路径。需要传参时写成单键映射，例如 `- qr_filter: {max_side: 250}`（块写法为 `- qr_filter:` 下缩进 `max_side: 250`）；纯字符串写法继续可用。`cf_pages` 仍从 `deploy:` 段取参数，写在插件项里的同名参数优先。参数名不被插件的 `__init__` 接受时加载会报错。
 - `chapters`：章节列表，必须包含 `slug` 和 `title`。
 
 `volume_uid` 是 MinerU 输出目录名的可匹配前缀，不一定是完整 UUID。单 PDF 自动拆分后会形成 `volume_uid_part1`、`volume_uid_part2` 等目录，章节仍使用同一个逻辑 `volume_uid`。
@@ -127,7 +129,7 @@ pytest
 3. 如需公开导入，再更新 `minerupress/plugins/__init__.py` 或 `minerupress/__init__.py`。
 4. 更新 README、`docs/`、模板 `book.yml`、`AGENTS.md` 和 `skills/minerupress/`。
 
-插件应尽量容错：缺可选依赖时警告并退化为 no-op，避免让普通导出流程崩掉。
+插件应尽量容错：缺可选依赖或运行时出错时警告（同一问题只警告一次）并退化为 no-op/返回原文，避免让普通导出流程崩掉。`cjk_spacing` 同时兼容 pangu 4.x 的 `spacing_text` 与 6.x 的 `space_text`。`qr_filter` 丢弃图片时会逐行打印文件名和尺寸；它不依赖图注文字，不要把某本书的标签（如“课件”“源代码”）写进插件。
 
 ## 代码与文档风格
 
@@ -148,3 +150,10 @@ pytest
 - `minerupress export --fetch` 是兼容/便捷入口；用户文档主流程优先讲清楚 `fetch` 和 `export` 的区别。
 - `core.export()` 会根据 UID 前缀在 `mineru_root` 下自动发现一个或多个分册目录，并按自然顺序顺推章节边界。
 - `core.export()` 每次都会重建 `docs/chapters/` 和 `docs/images/`，不要在这些目录里放手工长期维护内容。
+- `core.export()` 找不到章节边界时抛 `BoundaryNotFoundError`；CLI 捕获后给出下一步提示并以非零退出，不打印 traceback。
+- 章节边界按三级回退查找：强模式（显式 `start_pattern`、完整标题、章号+章名）→ 只有章号的整行 → 只有章名且带 `text_level` 的整行；用到回退时打印 `[NOTE]`。
+- 多个 `volume_uid` 命中同一目录时取最长前缀。
+- `official_api` 的续跑状态在工作区的 `.minerupress/fetch-state.json`；`minerupress fetch --force` 忽略它并重新上传。
+- 工作区 `.env` 由 CLI 在加载 `book.yml` 之前读取（先 `book.yml` 所在目录，再当前目录，不覆盖已有环境变量）；直接调用 `load_book_config` 的库用户需要自己加载。
+- 图片类条目包括 `image` 和带 `img_path` 的 `chart`，都会走 `on_image`；caption/footnote 同时兼容 `image_*` 和 `img_*` 字段名。
+- 导出完成后 CLI 会用 `nav.warn_if_nav_drift` 检查 `mkdocs.yml` 的章节 nav，只警告、不改写。

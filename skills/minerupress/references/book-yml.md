@@ -11,7 +11,8 @@ toc_max_page: 10
 allow_missing_boundaries: false
 
 plugins:
-  - qr_filter
+  - qr_filter:          # optional: a single-key mapping passes options
+      max_side: 250
   - cjk_spacing
 
 chapters:
@@ -30,9 +31,12 @@ api:
   enable_formula: true
   enable_table: true
   model_version: vlm
+  poll_timeout: 600  # seconds to wait for parsing per fetch run (default 600)
   sources:
     javaweb: resources/pdfs/javaweb.pdf
 ```
+
+Uploaded batches are recorded in `.minerupress/fetch-state.json` next to `book.yml`. Re-running `minerupress fetch` resumes from them instead of uploading again, skips volumes that are already fully fetched, and `minerupress fetch --force` ignores the record. The `.env` next to `book.yml` is loaded automatically; real environment variables win.
 
 Recommended first-pass fetch config for a raw PDF:
 
@@ -70,12 +74,13 @@ local_toolchain:
 
 Boundary controls:
 
-- `title`: canonical display title and default boundary source.
+- `title`: canonical display title and default boundary source. Boundaries are searched in tiers: label + name or an explicit pattern, then the label alone (`第1章`), then the chapter name alone (heading lines only, OCR spacing tolerated). A fallback prints a `[NOTE]` with the matched line and page; verify it.
 - `aliases`: alternate headings to auto-convert into boundary patterns.
 - `start_pattern`: one regex for legacy configs.
 - `start_patterns`: multiple regex alternatives.
 - `toc_max_page`: skip early table-of-contents matches only for the first boundary in a logical volume.
 - `allow_missing_boundaries`: keep `false` for CI/production.
+- `page_footnotes`: `skip` (default) drops MinerU `page_footnote` items; `paragraph` keeps the ones that start with a footnote marker and writes them as blockquotes after the last complete paragraph of their page.
 
 Practical guidance:
 
@@ -88,5 +93,7 @@ Practical guidance:
   - https://opendatalab.github.io/MinerU/usage/cli_tools/
 - Use `minerupress headings resources/mineru --volume-uid my-book --format yaml --body-only` after the first fetch to draft chapter boundaries.
 - If TOC entries are matched too early, use a display-only `title` plus an exact `start_pattern`.
+- `headings` also reads running page headers to recover chapters whose label was lost by OCR, and prints numbering gaps and risky patterns as `warning:` lines on stderr. Read them before pasting the YAML.
+- Several `volume_uid` values may share a prefix (`vol1`, `vol10`); the longest match owns a directory. A `[WARN]` about extra matched directories means a loosely named sibling such as `algo30_full` was merged in.
 
 Supported inferred heading styles include Chinese chapter/section labels, appendices, English `Chapter`/`Chap.`/`Unit`/`Module`/`Part`/`Section`/`Lesson`/`Lecture`, English `Appendix`/`App.`, project/module/task labels, Roman numerals such as `Lesson IV`, and numeric headings such as `10.1`.

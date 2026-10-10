@@ -28,7 +28,13 @@ dependencies = [
 [project.optional-dependencies]
 qr = ["opencv-python>=4.8.0"]
 cjk = ["pangu>=4.0.0"]
-all = ["opencv-python>=4.8.0", "pangu>=4.0.0"]
+site = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5,<10"]
+all = [
+    "opencv-python>=4.8.0",
+    "pangu>=4.0.0",
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5,<10",
+]
 dev = ["pytest>=8.0.0"]
 
 [project.urls]
@@ -52,6 +58,7 @@ include = ["minerupress*"]
 [tool.setuptools.package-data]
 minerupress = [
     "book_template/.env.example",
+    "book_template/.gitignore",
     "book_template/Makefile",
     "book_template/book.yml",
     "book_template/mkdocs.yml",

@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import re
 import shutil
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, Sequence
@@ -22,6 +23,10 @@ from .plugins.base import ExportPlugin
 # ---------------------------------------------------------------------------
 # Configuration dataclasses
 # ---------------------------------------------------------------------------
+
+class BoundaryNotFoundError(RuntimeError):
+    """Configured chapter boundaries could not be located in the MinerU output."""
+
 
 @dataclass
 class ChapterConfig:
@@ -44,6 +49,9 @@ class BookConfig:
     # disable filtering when a split PDF starts directly at chapter content.
     toc_max_page: int | None = 10
     allow_missing_boundaries: bool = False
+    # "skip" drops page_footnote items; "paragraph" keeps the ones that look
+    # like footnotes and places them at the next paragraph boundary.
+    page_footnotes: str = "skip"
 
 
 @dataclass(frozen=True)
@@ -58,6 +66,27 @@ class _VolumeSegment:
 # ---------------------------------------------------------------------------
 
 _SKIP_TYPES = {"page_number", "header", "footer", "page_footnote"}
+# Types rendered from an image file; chart items carry an img_path just like images.
+_IMAGE_TYPES = {"image", "chart"}
+# Types with a dedicated branch (or the generic text fallback) in _item_to_md.
+_HANDLED_TYPES = {"text", "aside_text", "image", "chart", "equation", "table", "code", "list"}
+# Keys that describe an item rather than carry content; used to decide whether
+# an unhandled item type silently throws something away.
+_META_KEYS = {"type", "sub_type", "page_idx", "bbox", "text_level", "page_size", "index", "id"}
+# Caption / footnote field names per item type.  MinerU v2 uses image_*; older
+# exports use img_*, so both spellings are accepted.
+_CAPTION_KEYS = {
+    "image": ("image_caption", "img_caption"),
+    "chart": ("chart_caption", "image_caption", "img_caption"),
+    "table": ("table_caption",),
+    "code": ("code_caption",),
+}
+_FOOTNOTE_KEYS = {
+    "image": ("image_footnote", "img_footnote"),
+    "chart": ("chart_footnote", "image_footnote", "img_footnote"),
+    "table": ("table_footnote",),
+    "code": ("code_footnote",),
+}
 _BOUNDARY_TYPES = {"text", "aside_text"}
 _LEVEL_MAP  = {1: "#", 2: "##", 3: "###", 4: "####"}
 _NATURAL_PARTS = re.compile(r"(\d+)")
@@ -90,6 +119,7 @@ _EN_APPENDIX_RE = re.compile(
 _NUMBERED_RE = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)*)\b")
 _FENCE_RE = re.compile(r"^```", re.MULTILINE)
 _TITLE_TAIL_PATTERN = r"(?:\s|[:：、,，;；.!?。．-])\s*\S.*"
+_NAME_SEPARATORS = " \t\u3000:：、,，;；.．-—–·"
 _EN_NUMBERS = {
     "one": 1, "first": 1,
     "two": 2, "second": 2,
@@ -134,9 +164,52 @@ def _caption_text(raw) -> str:
     return str(raw).strip() if raw else ""
 
 
+def _first_field(item: dict, keys: Sequence[str]):
+    """Return the first non-empty value among *keys* (or "")."""
+    for key in keys:
+        value = item.get(key)
+        if value:
+            return value
+    return ""
+
+
+def _caption_of(item: dict) -> str:
+    return _caption_text(_first_field(item, _CAPTION_KEYS.get(item.get("type", ""), ())))
+
+
+def _footnotes_of(item: dict) -> list[str]:
+    raw = _first_field(item, _FOOTNOTE_KEYS.get(item.get("type", ""), ()))
+    entries = raw if isinstance(raw, list) else [raw]
+    return [str(e).strip() for e in entries if e and str(e).strip()]
+
+
+# Spans Markdown must leave alone: arithmatex claims them before links and
+# backslash escapes, so inserting "\" or "&lt;" inside would corrupt the math.
+_MATH_SPAN_RE = re.compile(
+    r"\$\$.+?\$\$"
+    r"|(?<![\\$])\$(?!\s)(?:\\.|[^\\$])+?(?<!\s)\$(?!\d)"
+    r"|\\\(.+?\\\)"
+    r"|\\\[.+?\\\]",
+    re.DOTALL,
+)
+
+
+def _escape_prose(text: str) -> str:
+    text = text.replace("<", "&lt;").replace(">", "&gt;")
+    # OCR text such as "next[j](1≤j≤m-1)" would otherwise become a link.
+    return text.replace("](", "\\](")
+
+
 def _escape_inline_html(text: str) -> str:
-    """Render literal tags in prose instead of letting Markdown parse HTML."""
-    return text.replace("<", "&lt;").replace(">", "&gt;")
+    """Render literal tags and link-like text in prose; math spans are untouched."""
+    parts: list[str] = []
+    pos = 0
+    for m in _MATH_SPAN_RE.finditer(text):
+        parts.append(_escape_prose(text[pos:m.start()]))
+        parts.append(m.group())
+        pos = m.end()
+    parts.append(_escape_prose(text[pos:]))
+    return "".join(parts)
 
 
 def _apply_text_plugins(
@@ -188,6 +261,23 @@ def _natural_key(path: Path) -> list[object]:
     ]
 
 
+def _segment_name_is_regular(name: str, uid: str) -> bool:
+    """True for the directory names MineruPress itself produces for ``uid``."""
+    return re.fullmatch(rf"{re.escape(uid)}(?:_full|_part\d+)?", name) is not None
+
+
+def _irregular_segment_dirs(dirs: Sequence[Path], uid: str) -> list[Path]:
+    """Directories that only match ``uid`` as a loose prefix, e.g. ``algo30_full``.
+
+    Short prefixes of MinerU UUID directories (``73d5`` -> ``73d5b3e7-...``) are
+    a documented way to write ``volume_uid``; they are only suspicious when
+    ``uid`` also has regular candidates (``uid``, ``uid_full``, ``uid_partN``).
+    """
+    if not any(_segment_name_is_regular(d.name, uid) for d in dirs):
+        return []
+    return [d for d in dirs if not _segment_name_is_regular(d.name, uid)]
+
+
 def _discover_segments(
     mineru_root: Path,
     uid_prefixes: Sequence[str],
@@ -201,12 +291,9 @@ def _discover_segments(
             uid for uid in uid_prefixes
             if d.name.startswith(uid)
         ]
-        if len(matches) > 1:
-            raise ValueError(
-                f"Volume directory {d} matches multiple volume_uids: {matches}"
-            )
+        # Overlapping prefixes (vol1 / vol10): the most specific UID owns it.
         if matches:
-            vol_dirs[matches[0]].append(d)
+            vol_dirs[max(matches, key=len)].append(d)
 
     missing = [uid for uid, dirs in vol_dirs.items() if not dirs]
     if missing:
@@ -214,6 +301,17 @@ def _discover_segments(
             f"Volume directories not found for UIDs: {missing}\n"
             f"Searched in: {mineru_root}"
         )
+
+    for uid, dirs in vol_dirs.items():
+        odd = _irregular_segment_dirs(dirs, uid)
+        if odd:
+            names = ", ".join(d.name for d in odd)
+            print(
+                f"  [WARN] volume_uid {uid!r} also matches {names}; these are "
+                f"merged into the volume as extra segments. Use a longer "
+                f"volume_uid or move unrelated directories out of {mineru_root} "
+                f"if that is not intended."
+            )
 
     return {
         uid: [_VolumeSegment(uid=uid, path=d, items=_load_volume(d)) for d in dirs]
@@ -226,12 +324,16 @@ def _find_boundary_after(
     patterns: Sequence[re.Pattern],
     after: tuple[int, int] | None,
     toc_max_page: int | None,
+    *,
+    heading_only: bool = False,
 ) -> tuple[int, int] | None:
     start_seg = after[0] if after else 0
     for seg_idx in range(start_seg, len(segments)):
         start_item = after[1] + 1 if after and seg_idx == after[0] else 0
         for item_idx, item in enumerate(segments[seg_idx].items[start_item:], start_item):
             if item.get("type") not in _BOUNDARY_TYPES:
+                continue
+            if heading_only and not item.get("text_level"):
                 continue
             if (
                 after is None
@@ -246,7 +348,16 @@ def _find_boundary_after(
     return None
 
 
+@dataclass(frozen=True)
+class _BoundaryTier:
+    name: str
+    patterns: list[re.Pattern]
+    # Name-only lines are weak evidence, so they must at least be headings.
+    heading_only: bool = False
+
+
 def _compile_boundary_patterns(ch: ChapterConfig) -> list[re.Pattern]:
+    """Strong (tier 1) patterns: explicit patterns, full title, label + name."""
     raw_patterns: list[str] = []
     if ch.start_pattern:
         raw_patterns.append(ch.start_pattern)
@@ -254,6 +365,95 @@ def _compile_boundary_patterns(ch: ChapterConfig) -> list[re.Pattern]:
     raw_patterns.extend(_generated_boundary_patterns(ch.title, ch.aliases))
     deduped = list(dict.fromkeys(raw_patterns))
     return [re.compile(pat, re.IGNORECASE) for pat in deduped]
+
+
+def _compile_boundary_tiers(ch: ChapterConfig) -> list[_BoundaryTier]:
+    """Boundary patterns from strongest to weakest evidence.
+
+    1. ``strong``: explicit patterns, the full title, label followed by name.
+    2. ``label``: the numbering label alone on its line ("第1章").
+    3. ``name``: the chapter name alone on its heading line ("递 推 法").
+
+    MinerU often emits label and name as two separate items, or loses the
+    label altogether, so the weaker tiers are only tried when the stronger
+    ones find nothing in the remaining range.
+    """
+    strong = _compile_boundary_patterns(ch)
+    seen = {pat.pattern for pat in strong}
+    label_raw, name_raw = _fallback_boundary_patterns([ch.title, *ch.aliases])
+
+    def compile_new(raw: list[str]) -> list[re.Pattern]:
+        fresh = [pat for pat in dict.fromkeys(raw) if pat not in seen]
+        seen.update(fresh)
+        return [re.compile(pat, re.IGNORECASE) for pat in fresh]
+
+    return [
+        _BoundaryTier("strong", strong),
+        _BoundaryTier("label", compile_new(label_raw)),
+        _BoundaryTier("name", compile_new(name_raw), heading_only=True),
+    ]
+
+
+_TIER_LABELS = {
+    "label": "tier 2, chapter number only",
+    "name": "tier 3, chapter name only",
+}
+
+
+def _find_chapter_boundary(
+    segments: Sequence[_VolumeSegment],
+    ch: ChapterConfig,
+    after: tuple[int, int] | None,
+    toc_max_page: int | None,
+) -> tuple[int, int] | None:
+    """Locate ``ch`` after ``after``, falling back to weaker evidence if needed."""
+    for tier in _compile_boundary_tiers(ch):
+        if not tier.patterns:
+            continue
+        loc = _find_boundary_after(
+            segments, tier.patterns, after, toc_max_page,
+            heading_only=tier.heading_only,
+        )
+        if loc is None:
+            continue
+        if tier.name != "strong":
+            _report_boundary_fallback(segments, ch, tier, loc)
+        return loc
+    return None
+
+
+def _report_boundary_fallback(
+    segments: Sequence[_VolumeSegment],
+    ch: ChapterConfig,
+    tier: _BoundaryTier,
+    loc: tuple[int, int],
+) -> None:
+    where = _describe_item(segments, loc)
+    print(
+        f"  [NOTE] boundary fallback ({_TIER_LABELS[tier.name]}): "
+        f"{ch.title} -> {where}"
+    )
+    # A weak line that repeats later is a sign the first hit may be a section
+    # heading or a cross-reference instead of the real chapter opening.
+    later = _find_boundary_after(
+        segments, tier.patterns, loc, None, heading_only=tier.heading_only,
+    )
+    if later is not None:
+        print(
+            f"  [WARN] {ch.title}: the same line also appears later at "
+            f"{_describe_item(segments, later)}; if the first hit is wrong, "
+            f"set start_pattern for this chapter"
+        )
+
+
+def _describe_item(segments: Sequence[_VolumeSegment], loc: tuple[int, int]) -> str:
+    segment = segments[loc[0]]
+    item = segment.items[loc[1]]
+    text = " ".join(str(item.get("text", "")).split())
+    return (
+        f"{text!r} ({segment.path.name} item {loc[1]}, "
+        f"page_idx {item.get('page_idx', '?')})"
+    )
 
 
 def _generated_boundary_patterns(title: str, aliases: Sequence[str]) -> list[str]:
@@ -264,65 +464,70 @@ def _generated_boundary_patterns(title: str, aliases: Sequence[str]) -> list[str
             continue
         patterns.append(r"^\s*" + _flexible_literal(heading) + r"\s*$")
 
-        m = _CHAPTER_LABEL_RE.match(heading)
-        if m:
-            num, unit = m.groups()
+        split = _split_heading_label(heading)
+        if split:
+            label_pattern, rest, _ = split
             _append_numbered_label_pattern(
                 patterns,
-                rf"第\s*{_flexible_number(num)}\s*{re.escape(unit)}",
-                has_title=bool(heading[m.end():].strip()),
-            )
-            continue
-
-        m = _APPENDIX_RE.match(heading)
-        if m:
-            label = m.group(1)
-            _append_numbered_label_pattern(
-                patterns,
-                rf"附\s*录\s*{_flexible_number(label)}",
-                has_title=bool(heading[m.end():].strip()),
-            )
-            continue
-
-        m = _EN_CHAPTER_RE.match(heading)
-        if m:
-            word, num = m.groups()
-            _append_numbered_label_pattern(
-                patterns,
-                rf"{_english_label_pattern(word)}\s*{_flexible_number(num)}\b",
-                has_title=bool(heading[m.end():].strip()),
-            )
-            continue
-
-        m = _EN_APPENDIX_RE.match(heading)
-        if m:
-            word, label = m.groups()
-            _append_numbered_label_pattern(
-                patterns,
-                rf"{_english_label_pattern(word)}\s*{_flexible_number(label)}\b",
-                has_title=bool(heading[m.end():].strip()),
-            )
-            continue
-
-        m = _BARE_LABEL_RE.match(heading)
-        if m:
-            label, num = m.groups()
-            _append_numbered_label_pattern(
-                patterns,
-                rf"{re.escape(label)}\s*{_flexible_number(num)}",
-                has_title=bool(heading[m.end():].strip()),
-            )
-            continue
-
-        m = _NUMBERED_RE.match(heading)
-        if m:
-            num = re.escape(m.group(1))
-            _append_numbered_label_pattern(
-                patterns,
-                num,
-                has_title=bool(heading[m.end():].strip()),
+                label_pattern,
+                has_title=bool(rest.strip()),
             )
     return patterns
+
+
+def _fallback_boundary_patterns(headings: Sequence[str]) -> tuple[list[str], list[str]]:
+    """Return (label-only, name-only) patterns for headings of ``label name`` form."""
+    label_only: list[str] = []
+    name_only: list[str] = []
+    for heading in headings:
+        heading = str(heading).strip()
+        split = _split_heading_label(heading) if heading else None
+        if not split:
+            continue
+        label_pattern, rest, distinctive = split
+        name = rest.strip(_NAME_SEPARATORS)
+        if not name:
+            continue
+        # A bare "1" is too likely to be a stray page or list number.
+        if distinctive:
+            label_only.append(rf"^\s*{label_pattern}\s*$")
+        name_only.append(r"^\s*" + _flexible_literal(name, spaced_cjk=True) + r"\s*$")
+    return label_only, name_only
+
+
+def _split_heading_label(heading: str) -> tuple[str, str, bool] | None:
+    """Split ``heading`` into (label regex, remaining text, label_is_distinctive)."""
+    m = _CHAPTER_LABEL_RE.match(heading)
+    if m:
+        num, unit = m.groups()
+        return rf"第\s*{_flexible_number(num)}\s*{re.escape(unit)}", heading[m.end():], True
+
+    m = _APPENDIX_RE.match(heading)
+    if m:
+        label = m.group(1)
+        return rf"附\s*录\s*{_flexible_number(label)}", heading[m.end():], True
+
+    m = _EN_CHAPTER_RE.match(heading)
+    if m:
+        word, num = m.groups()
+        pattern = rf"{_english_label_pattern(word)}\s*{_flexible_number(num)}\b"
+        return pattern, heading[m.end():], True
+
+    m = _EN_APPENDIX_RE.match(heading)
+    if m:
+        word, label = m.groups()
+        pattern = rf"{_english_label_pattern(word)}\s*{_flexible_number(label)}\b"
+        return pattern, heading[m.end():], True
+
+    m = _BARE_LABEL_RE.match(heading)
+    if m:
+        label, num = m.groups()
+        return rf"{re.escape(label)}\s*{_flexible_number(num)}", heading[m.end():], True
+
+    m = _NUMBERED_RE.match(heading)
+    if m:
+        return re.escape(m.group(1)), heading[m.end():], "." in m.group(1)
+    return None
 
 
 def _append_numbered_label_pattern(
@@ -346,9 +551,42 @@ def _english_label_pattern(word: str) -> str:
     return re.escape(normalized)
 
 
-def _flexible_literal(text: str) -> str:
-    parts = [re.escape(part) for part in re.split(r"\s+", text) if part]
-    return r"\s*".join(parts)
+def _flexible_literal(text: str, *, spaced_cjk: bool = False) -> str:
+    """Literal regex that tolerates whitespace differences.
+
+    With ``spaced_cjk`` whitespace is also allowed between adjacent CJK
+    characters, because OCR often spaces out short titles ("递 推 法").
+    """
+    tokens = [part for part in re.split(r"\s+", text) if part]
+    if spaced_cjk:
+        tokens = [
+            r"\s*".join(re.escape(c) for c in _split_cjk_runs(token))
+            for token in tokens
+        ]
+    else:
+        tokens = [re.escape(token) for token in tokens]
+    return r"\s*".join(tokens)
+
+
+def _split_cjk_runs(token: str) -> list[str]:
+    """Split ``token`` so that adjacent CJK characters become separate pieces."""
+    pieces: list[str] = []
+    buf = ""
+    for ch in token:
+        if _is_cjk(ch):
+            if buf:
+                pieces.append(buf)
+                buf = ""
+            pieces.append(ch)
+        else:
+            buf += ch
+    if buf:
+        pieces.append(buf)
+    return pieces
+
+
+def _is_cjk(ch: str) -> bool:
+    return "\u4e00" <= ch <= "\u9fff" or "\u3400" <= ch <= "\u4dbf"
 
 
 def _flexible_number(text: str) -> str:
@@ -473,6 +711,52 @@ def _iter_chapter_items(
             yield item_idx, item, segment
 
 
+_LIST_BULLET_RE = re.compile(r"^[-*+•·]\s*")
+_LIST_ORDINAL_RE = re.compile(r"^(\d+)[.．)）]\s*")
+
+
+def _list_entry_text(entry) -> str:
+    if isinstance(entry, dict):
+        entry = entry.get("text") or entry.get("content") or ""
+    return re.sub(r"\s*\n\s*", " ", str(entry)).strip()
+
+
+def _list_to_md(item: dict, plugins: Sequence[ExportPlugin]) -> str | None:
+    """Render ``list_items`` as a Markdown list without doubling existing markers."""
+    lines: list[str] = []
+    for entry in item.get("list_items") or []:
+        text = _list_entry_text(entry)
+        if not text:
+            continue
+        m = _LIST_ORDINAL_RE.match(text)
+        if m:
+            marker, text = f"{m.group(1)}.", text[m.end():]
+        else:
+            marker, text = "-", _LIST_BULLET_RE.sub("", text, count=1)
+        text = _apply_text_plugins(item, text, plugins)
+        if text:
+            lines.append(f"{marker} {text}")
+    return "\n".join(lines) if lines else None
+
+
+def _footnotes_md(item: dict, plugins: Sequence[ExportPlugin]) -> list[str]:
+    return [_apply_text_plugins(item, note, plugins) for note in _footnotes_of(item)]
+
+
+def _figure_to_md(
+    item: dict,
+    out_name: str,
+    plugins: Sequence[ExportPlugin],
+) -> str:
+    caption = _caption_of(item)
+    alt = _apply_text_plugins(item, caption if caption else out_name, plugins)
+    lines = [f"![{alt}](../images/{out_name})"]
+    if caption:
+        cap_display = _apply_text_plugins(item, caption, plugins)
+        lines.append(f"*{cap_display}*")
+    return "\n\n".join(["\n".join(lines), *_footnotes_md(item, plugins)])
+
+
 def _item_to_md(
     item: dict,
     image_out_name: str | None,
@@ -484,24 +768,16 @@ def _item_to_md(
     if t in _SKIP_TYPES:
         return None
 
-    # ---- image ----
-    if t == "image":
-        raw_path = item.get("img_path", "")
-        if not raw_path:
+    # ---- image / chart ----
+    if t in _IMAGE_TYPES:
+        if item.get("img_path"):
+            # A filtered image takes its caption and footnote with it.
+            if image_out_name is None:
+                return None
+            return _figure_to_md(item, image_out_name, plugins)
+        if t == "image":
             return None
-        out_name = image_out_name
-        if out_name is None:
-            return None
-
-        raw_caption = item.get("img_caption", "")
-        caption = _caption_text(raw_caption)
-        alt = caption if caption else out_name
-        alt = _apply_text_plugins(item, alt, plugins)
-        lines = [f"![{alt}](../images/{out_name})"]
-        if caption:
-            cap_display = _apply_text_plugins(item, caption, plugins)
-            lines.append(f"*{cap_display}*")
-        return "\n".join(lines)
+        # A chart without an image falls through to its text, if any.
 
     # ---- equation ----
     if t == "equation":
@@ -516,8 +792,7 @@ def _item_to_md(
 
     # ---- table ----
     if t == "table":
-        raw_caption = item.get("table_caption", "")
-        caption = _caption_text(raw_caption)
+        caption = _caption_of(item)
         body = item.get("table_body", "")
         parts = []
         if caption:
@@ -525,11 +800,26 @@ def _item_to_md(
             parts.append(f"**{cap_display}**")
         if body:
             parts.append(body)
-        return "\n\n".join(parts) if parts else None
+        if not parts:
+            return None
+        return "\n\n".join([*parts, *_footnotes_md(item, plugins)])
 
     # ---- code ----
     if t == "code":
-        return _format_code_block(_code_body(item))
+        block = _format_code_block(_code_body(item))
+        if block is None:
+            return None
+        caption = _caption_of(item)
+        if not caption:
+            return block
+        cap_display = _apply_text_plugins(item, caption, plugins)
+        return f"**{cap_display}**\n\n{block}"
+
+    # ---- list ----
+    if t == "list" and item.get("list_items"):
+        md = _list_to_md(item, plugins)
+        if md is not None:
+            return md
 
     # ---- all text-like types ----
     text = item.get("text", "").strip()
@@ -545,6 +835,164 @@ def _item_to_md(
 
     # list, aside_text, chart, …
     return _apply_text_plugins(item, text, plugins)
+
+
+def _has_content(item: dict) -> bool:
+    return any(v for k, v in item.items() if k not in _META_KEYS)
+
+
+def _compact(text: str) -> str:
+    return re.sub(r"\s+", "", text).lower()
+
+
+def _leading_title_count(
+    chapter_items: Sequence[tuple[int, dict, _VolumeSegment]],
+    ch: ChapterConfig,
+) -> int:
+    """Count leading boundary items that only repeat the chapter title.
+
+    export() already writes ``# {ch.title}``; MinerU usually also emits the
+    printed chapter opener ("第1章", "递 推 法", …) as separate short items on
+    the opening page.  Only a run of items whose text, ignoring whitespace, is
+    a piece of the title or one of its aliases is skipped; a boundary that hit
+    ordinary prose stops the run immediately.
+    """
+    titles = [_compact(t) for t in (ch.title, *ch.aliases) if str(t).strip()]
+    if not chapter_items or not titles:
+        return 0
+    first_page = chapter_items[0][1].get("page_idx")
+    count = 0
+    for _, item, _segment in chapter_items:
+        if item.get("type") in _SKIP_TYPES:
+            count += 1
+            continue
+        text = _compact(str(item.get("text", "")))
+        if (
+            item.get("type") not in _BOUNDARY_TYPES
+            or item.get("page_idx") != first_page
+            or len(text) < 2
+            or not any(text in title for title in titles)
+        ):
+            break
+        count += 1
+    # Trailing page furniture is dropped anyway; only report real title items.
+    while count and chapter_items[count - 1][1].get("type") in _SKIP_TYPES:
+        count -= 1
+    return count
+
+
+@dataclass
+class _ItemStats:
+    """Per-type written / dropped tallies for the console summary."""
+    written: Counter = field(default_factory=Counter)
+    dropped: Counter = field(default_factory=Counter)
+    unhandled: Counter = field(default_factory=Counter)
+
+    def add(self, other: "_ItemStats") -> None:
+        self.written.update(other.written)
+        self.dropped.update(other.dropped)
+        self.unhandled.update(other.unhandled)
+
+    def totals(self) -> tuple[int, int]:
+        return sum(self.written.values()), sum(self.dropped.values())
+
+    def report(self) -> None:
+        types = sorted(
+            set(self.written) | set(self.dropped),
+            key=lambda t: (-(self.written[t] + self.dropped[t]), t),
+        )
+        print("\n  Items by type (written / dropped):")
+        for t in types:
+            print(f"    {t or '(none)':<14} {self.written[t]:>5} / {self.dropped[t]}")
+        for t, n in sorted(self.unhandled.items()):
+            print(
+                f"  [WARN] {n} item(s) of unhandled type '{t}' have content "
+                f"but were dropped"
+            )
+
+
+PAGE_FOOTNOTE_MODES = ("skip", "paragraph")
+# MinerU also tags stray code and formula fragments at the page bottom as
+# page_footnote; only text that opens with a footnote marker is kept.
+_FOOTNOTE_MARK_RE = re.compile(
+    r"^\s*(?:"
+    r"[①-⑳⑴-⒇*＊†‡§¶※¹²³⁰⁴-⁹]"
+    r"|\$\s*\^"
+    r"|\[\d{1,3}\]"
+    r"|\d{1,3}[\s.．、)）]"
+    r"|注\s*[\d:：]"
+    r")"
+)
+_SENTENCE_END_RE = re.compile(r"[。！？!?.；;:：…][\"'”’」』）)】\]]*\s*$")
+
+
+def _is_plain_paragraph(item: dict) -> bool:
+    return item.get("type") in _BOUNDARY_TYPES and not item.get("text_level")
+
+
+def _footnote_block(notes: Sequence[str]) -> str:
+    return "\n>\n".join(f"> {note}" for note in notes)
+
+
+def _render_chapter_items(
+    chapter_items: Sequence[tuple[int, dict, _VolumeSegment]],
+    ch: ChapterConfig,
+    image_decisions: dict[tuple[Path, int], str | None],
+    plugins: Sequence[ExportPlugin],
+    page_footnotes: str = "skip",
+) -> tuple[list[str], _ItemStats]:
+    lines: list[str] = []
+    stats = _ItemStats()
+    skip = _leading_title_count(chapter_items, ch)
+    # A footnote sits at the bottom of its page, which may be the middle of a
+    # paragraph that continues on the next page.  Notes found there wait in
+    # `pending` until that paragraph has been written.
+    pending: list[str] = []
+    paragraph_open = False
+
+    def flush() -> None:
+        if pending:
+            lines.append(_footnote_block(pending))
+            lines.append("")
+            pending.clear()
+
+    for n, (item_idx, item, segment) in enumerate(chapter_items):
+        t = item.get("type", "")
+        if t == "page_footnote" and page_footnotes == "paragraph" and n >= skip:
+            text = re.sub(r"\s*\n\s*", " ", str(item.get("text", ""))).strip()
+            if _FOOTNOTE_MARK_RE.match(text):
+                pending.append(_apply_text_plugins(item, text, plugins))
+                stats.written[t] += 1
+                if not paragraph_open:
+                    flush()
+            else:
+                stats.dropped[t] += 1
+            continue
+        md = None
+        if n >= skip:
+            md = _item_to_md(
+                item,
+                image_out_name=image_decisions.get((segment.path, item_idx)),
+                plugins=plugins,
+            )
+        if md is not None:
+            stats.written[t] += 1
+            continues = paragraph_open and _is_plain_paragraph(item)
+            if not continues:
+                flush()
+            lines.append(md)
+            lines.append("")
+            if continues:
+                flush()
+            paragraph_open = _is_plain_paragraph(item) and not _SENTENCE_END_RE.search(
+                str(item.get("text", ""))
+            )
+            continue
+        stats.dropped[t] += 1
+        if n >= skip and t not in _HANDLED_TYPES | _SKIP_TYPES and _has_content(item):
+            stats.unhandled[t] += 1
+    flush()
+    return lines, stats
 
 
 # ---------------------------------------------------------------------------
@@ -586,7 +1034,7 @@ def export(config: BookConfig, plugins: Sequence[ExportPlugin] = ()) -> None:
         for segment in segments:
             img_src = segment.path / "images"
             for item_idx, item in enumerate(segment.items):
-                if item.get("type") != "image":
+                if item.get("type") not in _IMAGE_TYPES:
                     continue
                 raw_path = item.get("img_path", "")
                 if not raw_path:
@@ -625,6 +1073,7 @@ def export(config: BookConfig, plugins: Sequence[ExportPlugin] = ()) -> None:
     for ch in config.chapters:
         vol_chapters[ch.volume_uid].append(ch)
 
+    book_stats = _ItemStats()
     for uid, chapter_list in vol_chapters.items():
         segments = segments_by_uid[uid]
         print(f"  Volume {uid}: {len(segments)} segment(s)")
@@ -635,9 +1084,8 @@ def export(config: BookConfig, plugins: Sequence[ExportPlugin] = ()) -> None:
         missing: list[ChapterConfig] = []
         cursor: tuple[int, int] | None = None
         for ch in chapter_list:
-            patterns = _compile_boundary_patterns(ch)
             toc_limit = ch.toc_max_page if ch.toc_max_page is not None else config.toc_max_page
-            loc = _find_boundary_after(segments, patterns, cursor, toc_limit)
+            loc = _find_chapter_boundary(segments, ch, cursor, toc_limit)
             if loc is None:
                 missing.append(ch)
                 print(f"  [WARN] boundary not found: {ch.title}")
@@ -646,7 +1094,7 @@ def export(config: BookConfig, plugins: Sequence[ExportPlugin] = ()) -> None:
             cursor = loc
         if missing and not config.allow_missing_boundaries:
             missing_titles = ", ".join(ch.title for ch in missing)
-            raise RuntimeError(
+            raise BoundaryNotFoundError(
                 f"Chapter boundaries not found for volume {uid}: {missing_titles}"
             )
 
@@ -654,25 +1102,25 @@ def export(config: BookConfig, plugins: Sequence[ExportPlugin] = ()) -> None:
             end = boundaries[i + 1][0] if i + 1 < len(boundaries) else None
             chapter_items = list(_iter_chapter_items(segments, start, end))
 
-            lines: list[str] = [f"# {ch.title}", ""]
-            for item_idx, item, segment in chapter_items:
-                image_out_name = image_decisions.get((segment.path, item_idx))
-                md = _item_to_md(
-                    item,
-                    image_out_name=image_out_name,
-                    plugins=plugins,
-                )
-                if md is not None:
-                    lines.append(md)
-                    lines.append("")
+            body, stats = _render_chapter_items(
+                chapter_items, ch, image_decisions, plugins,
+                page_footnotes=config.page_footnotes,
+            )
+            book_stats.add(stats)
+            lines: list[str] = [f"# {ch.title}", "", *body]
 
             for plugin in plugins:
                 lines = plugin.on_chapter_done(ch.slug, lines)
 
             out_path = chapters_out / f"{ch.slug}.md"
             out_path.write_text("\n".join(lines), encoding="utf-8")
-            print(f"  Wrote {out_path.name}  ({len(chapter_items)} items)")
+            written, dropped = stats.totals()
+            print(
+                f"  Wrote {out_path.name}  ({len(chapter_items)} items)"
+                f"  written {written}, dropped {dropped}"
+            )
 
+    book_stats.report()
     print(f"\nDone. Output in {docs_out}")
 
     for plugin in plugins:

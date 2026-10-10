@@ -29,7 +29,7 @@
 
 导出开始时，`docs/images/` 会被整体重建。随后：
 
-- 对每个 `image` item，先调用所有插件的 `on_image()`
+- 对每个带 `img_path` 的 `image` / `chart` item，先调用所有插件的 `on_image()`
 - 只有全部插件都返回 `True` 时，图片才会被复制
 - 如果不同分册里图片重名，导出器会自动为冲突文件加上分册目录名前缀
 
@@ -63,13 +63,41 @@ minerupress headings resources/mineru --volume-uid <uid> --format yaml --body-on
 
 当前内置转换逻辑大致如下：
 
-- `image`：输出 Markdown 图片，若有 caption 会附带斜体说明
+- `image`、`chart`：输出 Markdown 图片；caption 读取 `image_caption`（兼容旧字段 `img_caption`）或 `chart_caption`，作为 alt 并附带斜体说明，没有 caption 时 alt 是文件名；footnote 读取 `image_footnote` / `chart_footnote`，作为图后的普通段落。图被插件过滤时，caption 和 footnote 一并丢弃
 - `equation`：转为 `$$ ... $$`
-- `table`：保留 `table_body`，caption 转为加粗标题
-- `code`：优先读取 `code_body`，保留已带 fence 的代码块
+- `table`：保留 `table_body`，`table_caption` 转为加粗标题，`table_footnote` 作为表后的普通段落
+- `code`：优先读取 `code_body`，保留已带 fence 的代码块；`code_caption` 转为代码块前的加粗标题
+- `list`：`list_items` 渲染成 Markdown 列表，条目已带 `-`、`1.` 等前缀时不会重复添加
 - `text`：根据 `text_level` 转成标题或正文
 - 其他文本型 item：按普通文本输出
-- `page_number`、`header`、`footer`、`page_footnote`：直接跳过
+- `page_number`、`header`、`footer`：直接跳过
+- `page_footnote`：默认跳过，见下面的“页面脚注”
+
+### 页面脚注
+
+`book.yml` 的 `page_footnotes` 控制 `page_footnote` 的去向：
+
+- `skip`（默认）：不输出，只计入导出统计的 `dropped`。
+- `paragraph`：输出为 `> ` 引用块。
+
+`paragraph` 模式的规则：
+
+- 只保留以脚注标记开头的条目，例如 `①`、`[1]`、`1.`、`*`、`†`、`注：`。MinerU 有时会把页底的代码或公式碎片也标成 `page_footnote`，这些会被丢弃并计入 `dropped`。
+- 脚注在原书里位于页底。如果它前面的段落已经以句末标点结束，引用块就放在这一段之后；如果这一段跨页（没有句末标点），引用块会等下一页的续写段落输出后再出现，不会把一段话截成两半。
+- 遇到标题、图、表、代码、公式或章节结尾时，等待中的脚注会先输出。
+- 脚注编号保持原书写法，不重新编号，也不会和正文里的角标建立链接。原书通常每页从 ① 重新编号，所以同一章里会出现多个 ①。
+
+### 章首标题去重
+
+每章开头由导出器写一行 `# {title}`。边界 item 及其后连续的、同一页上的短文本如果去掉空白后只是章标题（或 `aliases`）的一部分（例如 `第4章`、`递 推 法`），就会被跳过，避免同一页出现多个标题。边界 item 命中的如果是一段正文，则原样保留。
+
+## 导出统计
+
+导出过程只在控制台输出统计，不写文件：
+
+- 每章一行 `Wrote ...`，末尾附带该章写出 / 丢弃的 item 数
+- 全书汇总按 item 类型列出 `written / dropped`；`header`、`page_number` 等跳过的类型也会计入 `dropped`
+- 遇到没有任何转换分支、但带有内容的 item 类型时，会输出 `[WARN]` 提示
 
 ## 文本处理细节
 
@@ -77,6 +105,8 @@ minerupress headings resources/mineru --volume-uid <uid> --format yaml --body-on
 
 - 普通正文中的 `<tag>` 会被自动转义成 `&lt;tag&gt;`
 - 这样教材里讨论 HTML/XML 标签时不会被 Markdown 当真 HTML 渲染
+- OCR 文本里形如 `next[j](1≤j≤m-1)` 的片段会被转义成 `next[j\](1≤j≤m-1)`，避免被渲染成链接
+- `$...$`、`$$...$$` 等公式内部不做任何转义，保证 MathJax 看到的是原始公式
 - 表格的 `table_body` 不做这一层转义，保留表格原始结构
 
 ## 输出目录行为

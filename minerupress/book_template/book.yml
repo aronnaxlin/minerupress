@@ -25,6 +25,11 @@ toc_max_page: 10
 # 默认严格模式：任一章节边界找不到就失败，避免静默生成错位章节。
 allow_missing_boundaries: false
 
+# 页面脚注（MinerU 的 page_footnote）。默认 skip：不输出。
+# 设为 paragraph：保留以脚注标记开头的条目（①、[1]、* 等），以引用块形式
+# 放在所在页最后一个完整段落之后；页底的代码或公式碎片仍会丢弃。
+page_footnotes: skip
+
 # ── 可选：本地 MinerU 工具链（外部安装，不内置在 MineruPress） ───────────────
 # 仅当 source: local_toolchain 时使用。
 # 需要你先按 MinerU 官方文档自行安装 `mineru` CLI。常见方式：
@@ -54,10 +59,14 @@ allow_missing_boundaries: false
 #   enable_formula: true
 #   enable_table: true
 #   model_version: vlm
+#   poll_timeout: 600            # 等待 MinerU 解析的最长秒数（默认 600）；超时不会丢任务，
+#                                # 重跑 minerupress fetch 会接着等
 #   sources:                     # volume_uid前缀 → 本地 PDF 路径
 #     my-book: resources/pdfs/book.pdf
 #   # 单 PDF 超过 API 页数限制时会自动拆分成 my-book_part1、my-book_part2...
 #   # 章节仍可全部使用同一个 volume_uid，不需要手工维护 part UID。
+#   # 上传后的批次记录在 .minerupress/fetch-state.json：下载中断后重跑 fetch 会直接续跑，
+#   # 不会重新上传；结果已完整落盘时会跳过。想重新上传解析，用 minerupress fetch --force。
 # ──────────────────────────────────────────────────────────────────────────
 
 # ── 可选：Cloudflare Pages 部署 ────────────────────────────────────────────
@@ -72,6 +81,10 @@ allow_missing_boundaries: false
 # ──────────────────────────────────────────────────────────────────────────
 
 # 启用的插件（内置: qr_filter, cjk_spacing, cf_pages；也可填 dotted import 路径）
+# 需要给插件传参时，把名字写成单键映射，纯字符串写法仍然可用：
+#   - qr_filter:
+#       max_side: 250          # 长边超过该值的图片不检测二维码
+# 被 qr_filter 丢弃的图片会在导出时逐行打印，方便核对。
 plugins:
   - qr_filter
   - cjk_spacing
@@ -82,6 +95,12 @@ plugins:
 # title 会自动推导章节边界，支持“第1章”“附录A”“Chapter 1”“Lesson IV”
 # “Appendix B”“项目二”“10.1”等格式。
 # 若 MinerU 识别出的标题与 title 不同，可用 aliases 或 start_patterns 补充。
+# 章号和章名被拆成两行、或章号被 OCR 丢掉时，会依次回退到“只有章号”“只有章名”
+# 的整行匹配，并在导出时打印 [NOTE] 提示命中的行和页码，请核对。
+#
+# 下面是占位章节，标题故意写成不会和任何图书匹配的样子。放好 MinerU 输出后运行
+#   minerupress headings resources/mineru --volume-uid <uid> --format yaml --body-only
+# 用它输出的 chapters 替换这一段；在此之前 export 会报章节边界缺失并给出下一步。
 chapters:
   - slug: ch01-overview
-    title: 第1章 概述
+    title: 示例章节（请用 minerupress headings 的输出替换）
