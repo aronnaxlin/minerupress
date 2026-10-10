@@ -46,7 +46,7 @@ minerupress init my-book
 cd my-book
 ```
 
-`[all]` brings the plugin dependencies and a pinned MkDocs (`mkdocs<2`). Avoid a bare `pip install mkdocs mkdocs-material`: it is unpinned and can pull MkDocs 2, which the template is not tested with. Use `minerupress[site]` if only the site tooling is missing.
+`[all]` brings the plugin dependencies and a pinned MkDocs (`mkdocs<2`). Avoid installing `mkdocs` and `mkdocs-material` on their own without version pins: that can pull MkDocs 2, which the template is not tested with. Use `minerupress[site]` if only the site tooling is missing.
 
 The workspace contains `book.yml`, `mkdocs.yml`, `Makefile`, `.env.example`, `.gitignore`, `docs/index.md` and empty `resources/mineru/` and `resources/pdfs/`.
 
