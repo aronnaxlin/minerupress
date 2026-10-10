@@ -1,6 +1,6 @@
 ---
 name: minerupress
-description: Turn MinerU PDF-parsing output into a MkDocs Material book site with the `minerupress` CLI, and maintain the MineruPress toolchain itself. Use this skill whenever the user mentions MineruPress or minerupress, a `book.yml`, MinerU `*_content_list.json` output, or wants to publish a PDF or scanned textbook as an online book or docs site, even if they do not name the tool. Also use it for `minerupress init`, `fetch`, `export`, `headings`, `nav` and `fingerprint`, for "chapter boundary not found" errors, missing captions, images or chapters in the exported site, an interrupted MinerU API fetch, writing an export plugin, or changing the minerupress repository.
+description: Turn MinerU PDF-parsing output into a MkDocs Material book site with the `minerupress` CLI. Use this skill whenever the user mentions MineruPress or minerupress, a `book.yml`, MinerU `*_content_list.json` output, or wants to publish a PDF or scanned textbook as an online book or docs site, even if they do not name the tool. Also use it for `minerupress init`, `fetch`, `export`, `headings`, `nav` and `fingerprint`, for "chapter boundary not found" errors, missing captions, images or chapters in the exported site, an interrupted MinerU API fetch, or writing a plugin to clean up a book's output.
 ---
 
 # MineruPress
@@ -15,12 +15,9 @@ PDF ──(MinerU)──> resources/mineru/<uid>*/…_content_list.json + images
 
 Everything book-specific lives in one file, `book.yml`: where the MinerU output comes from, the chapter list, and the plugins. The export engine itself knows nothing about any particular book.
 
-## First, work out which job this is
+This skill covers using MineruPress to produce a book: the released package, an isolated workspace, and the day-to-day commands. It does not cover developing MineruPress. If the task is to change the tool itself (the working directory is the `minerupress` repository, with a `pyproject.toml` and a `minerupress/` package), follow that repository's `AGENTS.md` instead.
 
-- **Running a book** (most requests): the user has a PDF or MinerU output and wants a site. Use the released package in an isolated workspace. Follow the workflow below.
-- **Changing MineruPress itself**: the working directory is the `minerupress` repository (it has `pyproject.toml` and a `minerupress/` package). Read `references/contributing.md` first; it has the checks, the layout and the rules that keep the template and docs in sync.
-
-Do not make a user clone the repository just to run a book. `minerupress init` copies the template out of the installed package.
+A user never needs to clone the repository to run a book. `minerupress init` copies the workspace template out of the installed package.
 
 ## Commands that have side effects
 
@@ -135,4 +132,4 @@ Treat `.env`, source PDFs, `resources/mineru/`, `docs/chapters/`, `docs/images/`
 | `references/book-yml.md` | Writing or reviewing `book.yml`: every key, the three source blocks, plugin options, `.env` |
 | `references/chapter-boundaries.md` | A boundary is missing or wrong, `headings` output is incomplete, or the book has several volumes |
 | `references/troubleshooting.md` | Something in the output is missing or broken: captions, images, footnotes, formulas, fetch failures, build errors |
-| `references/contributing.md` | Changing the MineruPress repository, or writing a plugin |
+| `references/plugins.md` | The book needs clean-up that configuration cannot express and a custom plugin is the durable fix |

@@ -96,4 +96,6 @@ A book run is finished when: `minerupress export book.yml` exits 0 with every ch
 
 ## When it is a toolchain bug
 
-Change configuration or write a plugin when the behaviour is specific to one book: a recurring watermark line, a publisher's QR codes, an unusual heading style. Report or fix it in MineruPress when the exporter mishandles MinerU output in general: an item type with content that is dropped, a field that is ignored, a crash. For the second kind, capture the item (type and field names, with the text shortened) and the exact log line, and see `contributing.md`.
+Change configuration or write a plugin (`plugins.md`) when the behaviour is specific to one book: a recurring promotional line, a publisher's QR codes, an unusual heading style.
+
+When the exporter mishandles MinerU output in general (an item type with content that is dropped, a field that is ignored, a crash), it is a bug in MineruPress and no workspace setting will fix it. Tell the user, and offer to file it at https://github.com/aronnaxlin/minerupress/issues with the item involved (its `type` and field names, with the text shortened) and the exact log line. Do not paste book content or tokens into the report.

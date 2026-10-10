@@ -1,9 +1,8 @@
 # AGENTS.md
 
-这份说明给在 MineruPress 仓库中协作的 coding agent 使用。目标不是记录某个开发者的本地习惯，而是帮助 agent 正确支持两类任务：
+这份说明给在 MineruPress 仓库里修改工具链的 coding agent 使用：Python 包、内置模板、文档、测试和发布流程。
 
-- 使用者：安装 MineruPress，创建图书工作区，把 MinerU 结果导出成 MkDocs Material 站点。
-- 贡献者：修改 MineruPress 工具链、文档、模板、测试、发布流程。
+怎样用 MineruPress 跑一本书（安装、建工作区、配置 `book.yml`、导出、排障）不在这里，见 `skills/minerupress/`。
 
 ## 项目定位
 
@@ -17,36 +16,7 @@ MineruPress 是通用的 `MinerU -> Markdown -> MkDocs Material` 图书发布工
 4. 按章节边界导出 Markdown 到 `docs/chapters/`，图片复制到 `docs/images/`。
 5. 可选插件处理图片、文本、整章后处理和导出完成后的部署。
 
-## 正确使用工作流
-
-普通用户优先使用发布包，不需要 clone 工具链仓库（`[all]` 已包含 `mkdocs>=1.6,<2` 和 `mkdocs-material>=9.5,<10`；只要站点依赖可以装 `minerupress[site]`）：
-
-```bash
-pip install "minerupress[all]"
-minerupress init my-book
-cd my-book
-```
-
-每个图书工作区只选择一种来源模式：
-
-- `uploaded_result`：已有 MinerU 解析结果。模板默认模式，把结果放到 `resources/mineru/` 后运行 `minerupress export book.yml`。
-- `official_api`：从 PDF 走 MinerU 官方 API。配置 `api.sources` 和 `MINERU_API_TOKEN` 后运行 `minerupress fetch book.yml`。
-- `local_toolchain`：调用用户单独安装的本地 `mineru` CLI。配置 `local_toolchain.sources` 后运行 `minerupress fetch book.yml`。
-
-`local_toolchain` 是外部可选能力。MineruPress 不内置 MinerU，也不应把 MinerU 作为强依赖；安装方式和 CLI 参数以 MinerU 官方文档为准。
-
-稳定跑书通常分两轮：
-
-1. 准备来源，拿到 `resources/mineru/`。
-2. 运行 `minerupress headings resources/mineru --volume-uid <uid> --format yaml --body-only`，根据真实标题结构修 `chapters`。
-3. 运行 `minerupress export book.yml`。
-4. 运行 `minerupress nav book.yml --check` 确认 `mkdocs.yml` 的 nav 没漏章节（`mkdocs build --strict` 对 nav 漏章只给 INFO）。
-5. 运行 `mkdocs build --strict`。
-6. 需要留痕时运行 `minerupress fingerprint --docs-dir docs --out reports/fingerprints.json`。
-
-## 贡献者工作流
-
-只有在修改 MineruPress 自身时才使用源码安装：
+## 开发环境与检查
 
 ```bash
 git clone https://github.com/aronnaxlin/minerupress.git
@@ -61,6 +31,8 @@ python -m compileall minerupress
 pytest
 ```
 
+CI 跑两种安装：只装 `.[dev]` 的矩阵（Python 3.11、3.12）和装 `.[dev,all]` 的 `test-extras`。两种都必须通过，所以依赖可选包（`cv2`、`numpy`、`pangu`、`mkdocs`）的测试要用 `pytest.importorskip` 跳过，不能在模块顶部直接 import。
+
 如果本地没有测试依赖，至少运行 `python -m compileall minerupress`，并在交付说明中明确说明哪些验证没有执行。
 
 ## 主要目录
@@ -69,6 +41,7 @@ pytest
 - `minerupress/core.py`：导出引擎，负责分册发现、章节边界查找、item 转 Markdown、图片复制和插件 hook。
 - `minerupress/loader.py`：解析 `book.yml`，组装 `BookConfig`、插件实例和 `SourceConfig`。
 - `minerupress/cli.py`：统一 CLI 入口，支持 `minerupress init|export|fetch|headings|nav|fingerprint`，并兼容旧命令。
+- `minerupress/headings.py`：`minerupress headings`，从正文标题和页眉里找章节候选并输出 `chapters` YAML。
 - `minerupress/nav.py`：根据 `book.yml` 章节生成 `mkdocs.yml` 的 nav 片段，检查现有 nav 是否漏章、指向不存在的章节或顺序不一致；只读，不改写 `mkdocs.yml`。
 - `minerupress/api_client.py`：MinerU API 客户端，包含上传、轮询、下载和 PDF 分片。
 - `minerupress/fingerprint.py`：对 `docs/` 下 Markdown 生成 SHA-256 指纹并输出差异。
@@ -76,7 +49,8 @@ pytest
 - `book_template/`：仓库内的新书模板副本。
 - `minerupress/book_template/`：随 PyPI 包发布的模板副本，供 `minerupress init` 复制。
 - `docs/`：项目文档，不是某一本书的生成目录。
-- `skills/minerupress/`：给外部 AI agent 安装的 MineruPress Skill。
+- `skills/minerupress/`：给外部 AI agent 安装的 Skill，只讲用户怎样跑书，不讲开发。
+- `tests/`：pytest 测试，只用合成数据。
 
 ## 仓库边界
 
@@ -93,25 +67,17 @@ pytest
 
 注意：项目文档使用的 `docs/` 是仓库文档目录；新书工作区中的 `docs/` 是生成/维护站点内容的目录。不要把两者混淆。
 
-## `book.yml` 约定
+## 配置语义
 
-关键字段：
+`book.yml` 各字段的用法写在 `docs/guide/configuration.md` 和 Skill 的 `references/book-yml.md` 里。改代码时要保持的语义：
 
-- `source`：`uploaded_result`、`official_api` 或 `local_toolchain`。
-- `mineru_root`：MinerU 输出根目录，默认 `resources/mineru`。
-- `docs_out`：MkDocs 文档目录，默认 `docs`。
-- `volume_uid`：顶层默认逻辑分册 UID。章节不写 `volume_uid` 时继承它。
-- `toc_max_page`：查找每个逻辑 UID 的第一个章节边界时跳过的目录页阈值；`0` 表示不跳过。
-- `allow_missing_boundaries`：默认 `false`。严格模式下任一章节边界缺失会失败。
-- `page_footnotes`：默认 `skip`。设为 `paragraph` 时把以脚注标记开头的 `page_footnote` 作为引用块放在所在页最后一个完整段落之后。
-- `plugins`：内置插件名或自定义插件 dotted import 路径。需要传参时写成单键映射，例如 `- qr_filter: {max_side: 250}`（块写法为 `- qr_filter:` 下缩进 `max_side: 250`）；纯字符串写法继续可用。`cf_pages` 仍从 `deploy:` 段取参数，写在插件项里的同名参数优先。参数名不被插件的 `__init__` 接受时加载会报错。
-- `chapters`：章节列表，必须包含 `slug` 和 `title`。
+- 所有相对路径按 `book.yml` 所在目录解析，不依赖调用命令时的当前工作目录。
+- `volume_uid` 是 `mineru_root` 下目录名的前缀，不一定是完整 UUID。单 PDF 拆分后是 `uid_part1`、`uid_part2`，单个结果是 `uid_full`，章节始终使用同一个逻辑 `volume_uid`。
+- 默认严格：`allow_missing_boundaries` 为 `false`，任一章节边界缺失都失败。
+- 新增选项的默认值不能改变已有图书的输出。
+- 插件项可以是字符串，也可以是带参数的单键映射；参数名不被插件的 `__init__` 接受时加载报错。`cf_pages` 仍从 `deploy:` 段取参数，插件项里的同名参数优先。
 
-`volume_uid` 是 MinerU 输出目录名的可匹配前缀，不一定是完整 UUID。单 PDF 自动拆分后会形成 `volume_uid_part1`、`volume_uid_part2` 等目录，章节仍使用同一个逻辑 `volume_uid`。
-
-章节边界优先从 `title` 自动推导；只有 MinerU 标题异常、目录页抢先命中或存在歧义时，再写 `aliases`、`start_pattern` 或 `start_patterns`。
-
-所有相对路径按 `book.yml` 所在目录解析，不依赖调用命令时的当前工作目录。
+新增一个 `book.yml` 字段要改的地方：`core.py` 或 `loader.py` 里的 dataclass、`load_book_config` 的解析和 docstring、两份模板的 `book.yml` 注释，以及“行为变更时要同步的地方”列出的文档。
 
 ## 插件开发约定
 
@@ -122,6 +88,8 @@ pytest
 - `on_chapter_done(slug, lines) -> list[str]`：整章后处理。
 - `on_export_done(docs_out) -> None`：导出完成后的副作用，例如部署。
 
+`on_text` 拿到的是 MinerU 原文，`<`、`>` 和类链接文本的转义在它之后进行；`on_image` 也会收到带 `img_path` 的 `chart` 条目。
+
 新增内置插件时：
 
 1. 放在 `minerupress/plugins/`。
@@ -131,13 +99,31 @@ pytest
 
 插件应尽量容错：缺可选依赖或运行时出错时警告（同一问题只警告一次）并退化为 no-op/返回原文，避免让普通导出流程崩掉。`cjk_spacing` 同时兼容 pangu 4.x 的 `spacing_text` 与 6.x 的 `space_text`。`qr_filter` 丢弃图片时会逐行打印文件名和尺寸；它不依赖图注文字，不要把某本书的标签（如“课件”“源代码”）写进插件。
 
+## 测试约定
+
+- 测试一律用合成数据，新行为配新测试。
+- 不在测试里调用 MinerU API；`tests/test_fetch.py` 演示了怎样替换客户端的网络方法。
+- 合成数据只能证明代码符合作者对 MinerU 输出的假设，而这些假设出过错（字段名、条目类型、章号出现的位置）。改动涉及条目转换或边界查找时，还要拿一份真实的 MinerU 输出验证：工作区放在仓库外，`docs_out` 指到临时目录，对比改动前后每章的条目数、`Items by type` 统计和章节文件的 diff。
+- 真实图书的数据不进仓库。验证中发现的问题用最小的合成数据在 `tests/` 里复现。
+
+## 行为变更时要同步的地方
+
+用户能观察到的行为变了，以下内容要一起更新：
+
+- `README.md` 和 `docs/README_EN.md`
+- `docs/guide/` 下对应的页面
+- 两份模板（`book.yml` 注释、`mkdocs.yml`、`Makefile`）
+- `load_book_config` 的 docstring
+- 本文件
+- `skills/minerupress/`：只更新用户会用到的部分，开发细节留在本文件
+
 ## 代码与文档风格
 
 - 使用标准库 `pathlib.Path` 处理路径。
 - 保持现有 dataclass 配置风格，不为简单字段引入重型配置框架。
 - 导出引擎应尽量保持书籍无关；书籍差异放在 `book.yml` 或插件中。
 - 不要把特定教材的清洗规则写死进 `core.py`。
-- 对会触发网络、上传、部署或大量生成文件的命令保持克制，先确认用户意图。
+- 会触发网络、上传、部署或删除的行为要能从命令名预料到，并在文档里写明。开发和测试时不要真的去上传或部署。
 - 用户文档先讲发布包和 `minerupress init`，再讲贡献者源码安装。
 - CLI 主流程统一使用 `minerupress <subcommand>`；旧入口只作为兼容说明出现。
 

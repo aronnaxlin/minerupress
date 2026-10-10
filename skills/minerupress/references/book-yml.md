@@ -138,7 +138,7 @@ plugins:
       strip_watermark: true
 ```
 
-An option name the plugin does not accept is a load-time error that lists the accepted names. A custom plugin's module must be importable by the Python that runs `minerupress` (installed, or on `PYTHONPATH`).
+An option name the plugin does not accept is a load-time error that lists the accepted names. Writing a custom plugin, and making its module importable, is covered in `plugins.md`.
 
 Built-in plugins:
 
