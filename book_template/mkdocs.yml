@@ -53,8 +53,12 @@ markdown_extensions:
   - toc:
       permalink: true
 
+# MathJax 固定在 3.2.2，避免 CDN 上的浮动版本在站点没改动时悄悄升级。
+# 离线或内网环境读不到 unpkg：把 mathjax@3.2.2 的整个 es5/ 目录（含字体）
+# 放进 docs/javascripts/mathjax/，再把下面的地址改成
+# javascripts/mathjax/tex-mml-chtml.js。
 extra_javascript:
-  - https://unpkg.com/mathjax@3/es5/tex-mml-chtml.js
+  - https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js
 
 nav:
   - 首页: index.md

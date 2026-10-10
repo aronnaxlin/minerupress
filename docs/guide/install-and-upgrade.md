@@ -8,7 +8,7 @@
 ## 环境要求
 
 - Python `>=3.11`
-- 如果要本地预览站点，额外安装 `mkdocs` 和 `mkdocs-material`
+- 如果要本地预览站点，需要 `mkdocs` 和 `mkdocs-material`，它们包含在 `minerupress[all]` 和 `minerupress[site]` 里
 - 如果要用 `qr_filter` 或 `cjk_spacing`，安装 `minerupress[all]`
 
 ## 普通安装：`pip`
@@ -17,7 +17,6 @@
 
 ```bash
 pip install "minerupress[all]"
-pip install mkdocs mkdocs-material
 ```
 
 适用场景：
@@ -44,16 +43,16 @@ pip uninstall minerupress
 
 ```bash
 pipx install 'minerupress[all]'
-pipx inject minerupress mkdocs mkdocs-material
+pipx inject minerupress mkdocs --include-apps
 ```
 
-这样 `minerupress` 会安装到独立虚拟环境里，不容易和你的图书工作区依赖打架。
+这样 `minerupress` 会安装到独立虚拟环境里，不容易和你的图书工作区依赖打架。第二条命令只是把虚拟环境里已有的 `mkdocs` 命令暴露到 `PATH`，不会改动版本。
 
 升级：
 
 ```bash
 pipx upgrade minerupress
-pipx inject minerupress mkdocs mkdocs-material --include-apps
+pipx inject minerupress mkdocs --include-apps
 ```
 
 卸载：
@@ -75,7 +74,7 @@ pip install -e ".[all]"
 如果你还要跑测试：
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,all]"
 ```
 
 这类安装适合：
@@ -86,17 +85,23 @@ pip install -e ".[dev]"
 
 ## MkDocs 依赖说明
 
-MineruPress 本身负责导出，不强依赖 MkDocs。只有当你要：
+MineruPress 的核心导出不强依赖 MkDocs。只有当你要：
 
 - 本地预览站点
 - 执行 `mkdocs build --strict`
 - 使用 `cf_pages` 插件部署
 
-才需要额外安装：
+才需要 MkDocs。`pip install "minerupress[all]"` 已经包含它；只想要站点依赖、不要 OpenCV 和 pangu 时可以只装：
 
 ```bash
-pip install mkdocs mkdocs-material
+pip install "minerupress[site]"
 ```
+
+`site` 依赖组把版本限定为 `mkdocs>=1.6,<2` 和 `mkdocs-material>=9.5,<10`。MkDocs 2.0 与现有插件、主题不兼容；上限可以避免某天 `pip install -U` 把站点工具链升到 2.0 后构建突然失败。当前 `mkdocs build` 开头仍会打印一段 Material 团队关于 MkDocs 2.0 的公告，那只是提示，不影响构建，版本约束不会让它消失。
+
+### MathJax 与离线环境
+
+模板的 `mkdocs.yml` 通过 `https://unpkg.com/mathjax@3.2.2/es5/tex-mml-chtml.js` 加载 MathJax，版本固定在 3.2.2，不会随 CDN 上的 `@3` 浮动。读者或构建机器访问不到 unpkg（内网、离线环境）时，需要自托管：把 `mathjax@3.2.2` 的整个 `es5/` 目录（包含字体）放进 `docs/javascripts/mathjax/`，再把 `extra_javascript` 改成 `javascripts/mathjax/tex-mml-chtml.js`。
 
 ## 关于本地 MinerU 工具链
 

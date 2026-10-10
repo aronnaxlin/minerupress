@@ -2,7 +2,7 @@ PYTHON     := python3
 DOCS_OUT   := docs
 REPORTS    := reports
 
-.PHONY: all export fetch lint fmt-check fingerprint serve build deploy clean help
+.PHONY: all export fetch nav nav-check lint fmt-check fingerprint serve build deploy clean help
 
 all: build
 
@@ -13,6 +13,14 @@ export:
 ## fetch: Prepare the configured source, then export
 fetch:
 	minerupress fetch book.yml
+
+## nav: Print the chapter nav for mkdocs.yml from book.yml
+nav:
+	minerupress nav book.yml
+
+## nav-check: Fail when the mkdocs.yml nav and book.yml chapters differ
+nav-check:
+	minerupress nav book.yml --check
 
 ## lint: Run markdownlint-cli2 on all docs
 lint:
@@ -30,7 +38,7 @@ fmt:
 fingerprint:
 	minerupress fingerprint --docs-dir $(DOCS_OUT) --out $(REPORTS)/fingerprints.json
 
-## serve: Start MkDocs dev server
+## serve: Start MkDocs dev server (mkdocs ships with `pip install "minerupress[all]"`)
 serve:
 	mkdocs serve
 

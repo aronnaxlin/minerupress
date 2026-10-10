@@ -14,7 +14,6 @@ MineruPress 适合处理扫描教材、课程讲义、内部手册和长 PDF 知
 
 ```bash
 pip install "minerupress[all]"
-pip install mkdocs mkdocs-material
 minerupress init my-book
 cd my-book
 mkdocs serve
@@ -66,15 +65,18 @@ MkDocs Material 图书站点
 
 ```bash
 pip install "minerupress[all]"
-pip install mkdocs mkdocs-material
 ```
+
+`[all]` 已经包含 `qr_filter`、`cjk_spacing` 需要的依赖，以及本地预览和构建站点用的 `mkdocs`、`mkdocs-material`（版本限定在 `mkdocs>=1.6,<2`、`mkdocs-material>=9.5,<10`，避免被 MkDocs 2.0 的不兼容变更影响）。只需要站点依赖时可以装 `minerupress[site]`。
 
 如果你更希望把 CLI 隔离到独立环境，推荐使用 `pipx`：
 
 ```bash
 pipx install 'minerupress[all]'
-pipx inject minerupress mkdocs mkdocs-material
+pipx inject minerupress mkdocs --include-apps
 ```
+
+第二条命令只是把已经装进虚拟环境的 `mkdocs` 命令暴露到 `PATH`，不会改动版本。
 
 升级时分别使用：
 
@@ -86,7 +88,7 @@ pip install -U "minerupress[all]"
 
 ```bash
 pipx upgrade minerupress
-pipx inject minerupress mkdocs mkdocs-material --include-apps
+pipx inject minerupress mkdocs --include-apps
 ```
 
 如果你是在开发或修改工具链本身，而不是普通使用，请看后面的“贡献者开发”。
@@ -97,7 +99,8 @@ pipx inject minerupress mkdocs mkdocs-material --include-apps
 |---|---|---|
 | `qr` | `opencv-python` | `qr_filter` 二维码图片过滤 |
 | `cjk` | `pangu` | `cjk_spacing` 中西文间距处理 |
-| `all` | 上面两组 | 常见完整环境 |
+| `site` | `mkdocs>=1.6,<2`、`mkdocs-material>=9.5,<10` | `mkdocs serve` / `mkdocs build --strict` 预览和构建站点 |
+| `all` | 上面三组 | 常见完整环境 |
 
 ## 新书工作区
 
@@ -178,6 +181,15 @@ minerupress headings resources/mineru --volume-uid javaweb --format yaml --body-
 mkdocs build --strict
 ```
 
+打印章节的 `mkdocs.yml` nav 片段，或检查现有 nav 是否和 `book.yml` 一致（只读，不改写 `mkdocs.yml`）：
+
+```bash
+minerupress nav book.yml
+minerupress nav book.yml --check
+```
+
+`--check` 发现章节没进 nav、nav 指向 `book.yml` 里没有的章节文件、或章节顺序不一致时以非零退出。`mkdocs build --strict` 对 nav 漏掉的页面只给 INFO，不会失败，所以章节增删后建议跑一次。
+
 生成或比对文档指纹：
 
 ```bash
@@ -241,15 +253,28 @@ CLI 现已统一为 `minerupress <subcommand>`，例如：
 - `minerupress export`
 - `minerupress fetch`
 - `minerupress headings`
+- `minerupress nav`
 - `minerupress fingerprint`
 
 旧入口 `minerupress-export`、`minerupress-fetch`、`minerupress-headings` 以及 `mineru-export`、`mineru-fetch` 仍然保留，便于旧项目平滑迁移。
 
 ## 内置插件
 
-- `qr_filter`：使用 OpenCV 检测并过滤小尺寸二维码图片。
+- `qr_filter`：使用 OpenCV 检测并过滤小尺寸二维码图片。对原图和放大、加白边、二值化后的版本分别检测，并要求检出的方块占图片大部分面积且接近正方形，因此教材里的矩阵、棋盘、图结构小插图不会被误删。被丢弃的图片会在导出日志里逐行打印文件名和尺寸。
 - `cjk_spacing`：使用 `pangu` 为中西文混排补空格，并保护 LaTeX 公式片段。
 - `cf_pages`：执行 `mkdocs build --strict` 后部署到 Cloudflare Pages；项目不存在时会自动创建后重试。
+
+需要给插件传参时，把插件名写成单键映射；纯字符串写法继续可用：
+
+```yaml
+plugins:
+  - qr_filter:
+      max_side: 250     # 长边超过该值的图片不做二维码检测（默认 250）
+  - cjk_spacing
+  - cf_pages            # 仍然从 deploy: 段读取参数
+```
+
+参数名写错时导出会直接报错并列出该插件接受的参数。自定义插件的 `__init__` 参数同样可以这样传入。
 
 自定义插件继承 `ExportPlugin`：
 

@@ -92,7 +92,7 @@ minerupress headings resources/mineru --format yaml --body-only
 常见原因：
 
 - 源目录 `images/` 中对应文件不存在
-- 被 `qr_filter` 或自定义插件过滤掉了（图的 caption 和 footnote 会一起丢弃）
+- 被 `qr_filter` 或自定义插件过滤掉了（图的 caption 和 footnote 会一起丢弃；`qr_filter` 会在导出日志里逐行打印被丢弃图片的文件名和尺寸）
 - 图是 `chart` 类型：从当前版本起会和 `image` 一样复制并输出
 - 同名图片冲突后文件名被自动改写，而你在外部又手工引用了旧名字
 
@@ -120,11 +120,21 @@ minerupress headings resources/mineru --format yaml --body-only
 - `mkdocs build --strict` 成功
 - 如需留痕，`reports/fingerprints.json` 已生成
 
+## 章节没有出现在站点导航里
+
+`mkdocs build --strict` 对没有进入 `nav` 的页面只打印 INFO，不会失败，所以漏写的章节会静默缺失。运行：
+
+```bash
+minerupress nav book.yml --check
+```
+
+它会列出没进 nav 的章节、nav 里指向 `book.yml` 没有的章节文件、以及章节顺序不一致的地方。不带 `--check` 时打印可以直接贴进 `mkdocs.yml` 的章节 nav 片段。
+
 ## `mkdocs build --strict` 失败
 
 优先检查：
 
-- `mkdocs.yml` 导航是否引用了不存在的章节文件
+- `mkdocs.yml` 导航是否引用了不存在的章节文件（`minerupress nav book.yml --check` 可以检查）
 - 文档里是否有坏链接
 - 生成内容是否包含不合法 Markdown/HTML 结构
 - 公式、表格、代码块是否被异常截断

@@ -31,7 +31,7 @@ chapters:
 - `volume_uid`：顶层默认逻辑分册 UID。章节未单独设置时继承它。
 - `toc_max_page`：首次查找章节边界时跳过前几页目录页；`0` 表示不跳过。
 - `allow_missing_boundaries`：默认 `false`。任何章节边界缺失都会失败。
-- `plugins`：插件列表，可以写内置短名或自定义插件 dotted import 路径。
+- `plugins`：插件列表，可以写内置短名或自定义插件 dotted import 路径。需要传参时写成单键映射，例如 `- qr_filter:` 下缩进 `max_side: 250`，详见 [插件系统](plugins.md)。
 - `chapters`：章节列表，至少要有 `slug` 和 `title`。
 
 ## 章节字段

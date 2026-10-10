@@ -6,6 +6,8 @@ Load a book.yml file into a BookConfig + plugin list.
 
 from __future__ import annotations
 
+import importlib
+import inspect
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
@@ -90,7 +92,8 @@ def load_book_config(
       wrangler_cmd: npx wrangler
 
     plugins:                               # optional list
-      - qr_filter                          # built-in name
+      - qr_filter:                         # built-in name; a single-key mapping
+          max_side: 250                    #   passes options to the plugin
       - cjk_spacing                        # built-in name
       - cf_pages                           # built-in: deploy to Cloudflare Pages
       # - mypackage.MyPlugin               # dotted import path
@@ -244,27 +247,85 @@ _BUILTIN_PLUGINS: dict[str, str] = {
 }
 
 
+def _parse_plugin_entry(entry) -> tuple[str, dict]:
+    """Split one ``plugins:`` list entry into (name, options).
+
+    Accepts a plain string (``qr_filter``) or a single-key mapping whose value
+    holds the plugin's constructor options (``qr_filter: {max_side: 250}``).
+    """
+    if isinstance(entry, str):
+        return entry, {}
+    if isinstance(entry, dict):
+        if len(entry) != 1:
+            raise ValueError(
+                "Each plugins entry must be a plugin name or a single-key mapping "
+                f"like {{qr_filter: {{max_side: 250}}}}; got keys {list(entry)}. "
+                "Put each plugin on its own '- ' line."
+            )
+        name, options = next(iter(entry.items()))
+        if options is None:
+            options = {}
+        if not isinstance(options, dict):
+            raise ValueError(
+                f"Options for plugin {name!r} must be a mapping of option: value, "
+                f"got {type(options).__name__}."
+            )
+        return str(name), dict(options)
+    raise ValueError(
+        f"Invalid plugins entry {entry!r}: expected a plugin name or a mapping."
+    )
+
+
+def _check_plugin_options(name: str, cls, options: dict) -> None:
+    """Fail with a readable message when book.yml passes an option the plugin lacks."""
+    try:
+        params = inspect.signature(cls).parameters
+    except (TypeError, ValueError):
+        return
+    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()):
+        return
+    accepted = [
+        n for n, p in params.items()
+        if p.kind in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+    ]
+    unknown = [k for k in options if k not in accepted]
+    if unknown:
+        hint = f"accepted options: {', '.join(accepted)}" if accepted else "it takes no options"
+        raise ValueError(
+            f"Plugin {name!r} got unknown option(s): {', '.join(map(str, unknown))}; {hint}."
+        )
+
+
 def _load_plugins(
-    names: list[str],
+    names: list,
     deploy_cfg: dict,
     base_dir: Path,
 ) -> list[ExportPlugin]:
     plugins = []
-    for name in names:
+    for entry in names or []:
+        name, options = _parse_plugin_entry(entry)
         dotted = _BUILTIN_PLUGINS.get(name, name)
+        if "." not in dotted:
+            raise ValueError(
+                f"Unknown plugin {name!r}. Built-in plugins: "
+                f"{', '.join(sorted(_BUILTIN_PLUGINS))}; or use a dotted import path "
+                "such as mypackage.MyPlugin."
+            )
         module_path, cls_name = dotted.rsplit(".", 1)
-        import importlib
         mod = importlib.import_module(module_path)
         cls = getattr(mod, cls_name)
+        kwargs: dict = {}
         # Pass deploy: block kwargs to cf_pages (and any future plugins that accept them)
         if name == "cf_pages" and deploy_cfg:
-            plugins.append(cls(
+            kwargs = dict(
                 pages_project=deploy_cfg.get("pages_project", ""),
                 site_dir=deploy_cfg.get("site_dir", "site"),
                 branch=deploy_cfg.get("branch", "main"),
                 wrangler_cmd=deploy_cfg.get("wrangler_cmd", "npx wrangler"),
                 project_dir=base_dir,
-            ))
-        else:
-            plugins.append(cls())
+            )
+        # Options written next to the plugin name take precedence over deploy:.
+        _check_plugin_options(name, cls, options)
+        kwargs.update(options)
+        plugins.append(cls(**kwargs))
     return plugins

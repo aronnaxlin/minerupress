@@ -1,6 +1,6 @@
 ---
 name: minerupress
-description: 'Use when an AI agent needs to help a user or contributor work with MineruPress: install the released CLI, initialize a book workspace, choose exactly one source mode (`uploaded_result`, `official_api`, or `local_toolchain`), export MinerU results into MkDocs Material chapters, inspect heading boundaries, verify builds, troubleshoot generated output, develop plugins, or maintain the MineruPress repository. Trigger for MineruPress, minerupress, MinerU content_list.json, book.yml, `minerupress init`, `minerupress export`, `minerupress fetch`, `minerupress headings`, `minerupress fingerprint`, generated docs/chapters, or PDF-to-MkDocs book publishing automation.'
+description: 'Use when an AI agent needs to help a user or contributor work with MineruPress: install the released CLI, initialize a book workspace, choose exactly one source mode (`uploaded_result`, `official_api`, or `local_toolchain`), export MinerU results into MkDocs Material chapters, inspect heading boundaries, verify builds, troubleshoot generated output, develop plugins, or maintain the MineruPress repository. Trigger for MineruPress, minerupress, MinerU content_list.json, book.yml, `minerupress init`, `minerupress export`, `minerupress fetch`, `minerupress headings`, `minerupress nav`, `minerupress fingerprint`, generated docs/chapters, or PDF-to-MkDocs book publishing automation.'
 ---
 
 # MineruPress
@@ -13,17 +13,18 @@ For ordinary users, prefer the released package and an isolated book workspace:
 
 ```bash
 pip install "minerupress[all]"
-pip install mkdocs mkdocs-material
 minerupress init my-book
 cd my-book
 ```
+
+`[all]` includes the plugin dependencies (`opencv-python`, `pangu`) and the site tooling pinned to `mkdocs>=1.6,<2` / `mkdocs-material>=9.5,<10`. Use `minerupress[site]` when only the MkDocs dependencies are needed. Do not tell users to run a bare `pip install mkdocs mkdocs-material`; it can pull in MkDocs 2.0.
 
 For contributors changing MineruPress itself, use the repository checkout:
 
 ```bash
 git clone https://github.com/aronnaxlin/minerupress.git
 cd minerupress
-pip install -e ".[dev]"
+pip install -e ".[dev,all]"
 ```
 
 Do not make users clone the toolchain repo just to run a book. The bundled template is copied with `minerupress init <directory>` from the installed package.
@@ -76,8 +77,11 @@ minerupress init my-book
 minerupress export book.yml
 minerupress fetch book.yml
 minerupress headings resources/mineru --volume-uid my-book --format yaml --body-only
+minerupress nav book.yml --check
 minerupress fingerprint --docs-dir docs --out reports/fingerprints.json
 ```
+
+`minerupress nav book.yml` prints the chapter `nav:` section to paste into `mkdocs.yml`; with `--check` it exits non-zero when a chapter is missing from the nav, the nav points at a chapter file `book.yml` does not define, or the order differs. It is read-only and tolerates `!!python/name:` tags in `mkdocs.yml`. Run it whenever chapters change, because `mkdocs build --strict` only reports pages missing from `nav` at INFO level and a missing chapter goes unnoticed.
 
 Legacy wrappers such as `minerupress-export`, `minerupress-fetch`, `minerupress-headings`, `mineru-export`, and `mineru-fetch` remain available only for existing projects. Do not present them as the main workflow.
 
@@ -101,6 +105,17 @@ chapters:
   - slug: ch01-overview
     title: 第1章 概述
 ```
+
+Plugins that take options are written as a single-key mapping; plain names keep working. An unknown option name is a load-time error, and `cf_pages` still reads `deploy:`:
+
+```yaml
+plugins:
+  - qr_filter:
+      max_side: 250     # QR detection only runs on images whose long side is <= this
+  - cjk_spacing
+```
+
+`qr_filter` prints one line per dropped image (file name and size) so the filtering can be audited. Do not hard-code book-specific caption labels into it. `cjk_spacing` works with pangu 4.x (`spacing_text`) and 6.x (`space_text`) and falls back to the original text if pangu fails.
 
 For API mode:
 

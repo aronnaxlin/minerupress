@@ -3,21 +3,21 @@
 ## 环境要求
 
 - Python `>=3.11`
-- 推荐安装 `mkdocs` 和 `mkdocs-material`
-- 如果要用二维码过滤或中西文间距处理，安装对应可选依赖
+- `minerupress[all]` 一次装好 `mkdocs`、`mkdocs-material` 以及二维码过滤、中西文间距处理的可选依赖
 
 推荐直接安装 PyPI 发布包：
 
 ```bash
 pip install "minerupress[all]"
-pip install mkdocs mkdocs-material
 ```
+
+只想要本地预览/构建站点的依赖时，可以改装 `minerupress[site]`。
 
 如果你更喜欢独立 CLI 环境，也可以用 `pipx`：
 
 ```bash
 pipx install 'minerupress[all]'
-pipx inject minerupress mkdocs mkdocs-material
+pipx inject minerupress mkdocs --include-apps
 ```
 
 如果你是在开发工具链本身，而不是普通使用，请改看 [安装与升级](install-and-upgrade.md) 里的开发安装一节。
