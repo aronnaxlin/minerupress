@@ -15,8 +15,8 @@ deploy:
   branch: main                    # optional, default: main
   wrangler_cmd: npx wrangler      # optional, default: npx wrangler
 
-Environment variables (loaded from .env automatically)
-------------------------------------------------------
+Environment variables (the CLI loads .env from the book.yml directory)
+----------------------------------------------------------------------
 CLOUDFLARE_ACCOUNT_ID   — required by wrangler
 CLOUDFLARE_API_TOKEN    — required by wrangler
 PAGES_PROJECT           — fallback if deploy.pages_project not set in book.yml
@@ -35,11 +35,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 from .base import ExportPlugin
-
-load_dotenv()
 
 
 class CloudflarePagesPlugin(ExportPlugin):

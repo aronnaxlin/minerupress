@@ -25,6 +25,7 @@ class APIConfig:
     enable_formula: bool = True
     enable_table: bool = True
     model_version: str = "vlm"
+    poll_timeout: int = 600          # seconds to wait for parsing per fetch run
     # PDF files to upload, keyed by volume_uid prefix
     sources: dict[str, str] = field(default_factory=dict)
 
@@ -76,6 +77,7 @@ def load_book_config(
       enable_formula: true
       enable_table: true
       model_version: vlm
+      poll_timeout: 600                    # seconds to wait for parsing (default 600)
       sources:                             # volume_uid prefix -> PDF path
         73d5b3e7: resources/pdfs/vol1.pdf
         a1b2c3d4: resources/pdfs/vol2.pdf
@@ -145,6 +147,7 @@ def load_book_config(
             enable_formula=bool(a.get("enable_formula", True)),
             enable_table=bool(a.get("enable_table", True)),
             model_version=a.get("model_version", "vlm"),
+            poll_timeout=_poll_timeout(a.get("poll_timeout", 600)),
             sources={
                 str(k): str(_resolve_path(base_dir, v))
                 for k, v in a.get("sources", {}).items()
@@ -170,6 +173,18 @@ def load_book_config(
     )
 
     return config, plugins, source_cfg
+
+
+def _poll_timeout(value) -> int:
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        seconds = 0
+    if seconds <= 0:
+        raise ValueError(
+            f"api.poll_timeout must be a positive number of seconds, got {value!r}."
+        )
+    return seconds
 
 
 def _optional_int(value) -> int | None:
