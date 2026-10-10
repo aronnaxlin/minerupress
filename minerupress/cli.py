@@ -263,6 +263,16 @@ def _run_fingerprint(args: argparse.Namespace) -> int:
     )
 
 
+def _run_nav(args: argparse.Namespace) -> int:
+    from . import nav
+
+    return nav.run(
+        Path(args.book_yml),
+        Path(args.mkdocs_yml) if args.mkdocs_yml else None,
+        args.check,
+    )
+
+
 def _run_init(args: argparse.Namespace) -> int:
     target = Path(args.directory).expanduser()
     if target.exists() and not target.is_dir():
@@ -341,6 +351,25 @@ def _configure_fingerprint_parser(parser: argparse.ArgumentParser) -> None:
     parser.set_defaults(handler=_run_fingerprint, command="fingerprint")
 
 
+def _configure_nav_parser(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "book_yml",
+        nargs="?",
+        default="book.yml",
+        help="Path to book.yml (default: book.yml)",
+    )
+    parser.add_argument(
+        "--mkdocs-yml",
+        help="mkdocs.yml to compare against (default: mkdocs.yml next to book.yml).",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="Compare mkdocs.yml nav with the chapters; exit 1 on drift, 2 on errors.",
+    )
+    parser.set_defaults(handler=_run_nav, command="nav")
+
+
 def _configure_init_parser(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "directory",
@@ -359,7 +388,7 @@ def _configure_init_parser(parser: argparse.ArgumentParser) -> None:
 def build_parser(prog: str = "minerupress") -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=prog,
-        description="MineruPress CLI for initializing, exporting, fetching, heading inspection, and fingerprints.",
+        description="MineruPress CLI for initializing, exporting, fetching, heading inspection, nav checks, and fingerprints.",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -397,6 +426,16 @@ def build_parser(prog: str = "minerupress") -> argparse.ArgumentParser:
         description="Fingerprint docs/ Markdown files.",
     )
     _configure_fingerprint_parser(fingerprint_parser)
+
+    nav_parser = subparsers.add_parser(
+        "nav",
+        help="Print the chapter nav for mkdocs.yml, or check it against book.yml.",
+        description=(
+            "Print the mkdocs.yml nav section for the chapters in book.yml, "
+            "or with --check report chapters missing from or out of order in mkdocs.yml."
+        ),
+    )
+    _configure_nav_parser(nav_parser)
 
     return parser
 
