@@ -83,12 +83,17 @@ minerupress headings resources/mineru --format yaml --body-only
 
 这是预期行为。普通正文里的 `<span>`、`<table>`、`<div>` 等会被自动转义，避免被 Markdown 误当成真实 HTML。只有表格的 `table_body` 这类结构化内容会保留原始 HTML。
 
+## 文字里的方括号加圆括号显示成链接或告警
+
+形如 `next[j](1≤j≤m-1)` 的 OCR 文本会被导出器转义为 `next[j\](1≤j≤m-1)`，不应再被渲染成链接。公式 `$...$` 内部不转义。如果仍看到 `unrecognized relative link` 之类的提示，先确认章节 Markdown 是否由当前版本重新导出。
+
 ## 图片丢失
 
 常见原因：
 
 - 源目录 `images/` 中对应文件不存在
-- 被 `qr_filter` 或自定义插件过滤掉了
+- 被 `qr_filter` 或自定义插件过滤掉了（图的 caption 和 footnote 会一起丢弃）
+- 图是 `chart` 类型：从当前版本起会和 `image` 一样复制并输出
 - 同名图片冲突后文件名被自动改写，而你在外部又手工引用了旧名字
 
 更稳妥的做法是检查导出日志和源 `img_path`，不要手改生成目录。
