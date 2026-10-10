@@ -190,6 +190,20 @@ nav:
     - 第2章 软件测试的基本概念: chapters/ch02-basic-concepts.md
 ```
 
+不想手写的话，让 MineruPress 按 `book.yml` 打印章节片段，直接贴进 `mkdocs.yml`：
+
+```bash
+minerupress nav book.yml
+```
+
+之后每次增删章节，可以用 `--check` 确认 nav 没漏章、没指向不存在的章节文件、顺序和 `book.yml` 一致：
+
+```bash
+minerupress nav book.yml --check
+```
+
+这一步很值得做：`mkdocs build --strict` 对没有进 `nav` 的页面只给 INFO，不会失败，漏写的章节会静默缺失。`minerupress nav` 只读，不会改写 `mkdocs.yml`；`mkdocs.yml` 里的 `!!python/name:...` 之类 Material 常见标签也能正常解析。
+
 并补一个简单首页 `docs/index.md`。
 
 ## 9. 重跑标准导出

@@ -28,7 +28,13 @@ dependencies = [
 [project.optional-dependencies]
 qr = ["opencv-python>=4.8.0"]
 cjk = ["pangu>=4.0.0"]
-all = ["opencv-python>=4.8.0", "pangu>=4.0.0"]
+site = ["mkdocs>=1.6,<2", "mkdocs-material>=9.5,<10"]
+all = [
+    "opencv-python>=4.8.0",
+    "pangu>=4.0.0",
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5,<10",
+]
 dev = ["pytest>=8.0.0"]
 
 [project.urls]

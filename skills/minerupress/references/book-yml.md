@@ -11,7 +11,8 @@ toc_max_page: 10
 allow_missing_boundaries: false
 
 plugins:
-  - qr_filter
+  - qr_filter:          # optional: a single-key mapping passes options
+      max_side: 250
   - cjk_spacing
 
 chapters:

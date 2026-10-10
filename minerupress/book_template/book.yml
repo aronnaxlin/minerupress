@@ -72,6 +72,10 @@ allow_missing_boundaries: false
 # ──────────────────────────────────────────────────────────────────────────
 
 # 启用的插件（内置: qr_filter, cjk_spacing, cf_pages；也可填 dotted import 路径）
+# 需要给插件传参时，把名字写成单键映射，纯字符串写法仍然可用：
+#   - qr_filter:
+#       max_side: 250          # 长边超过该值的图片不检测二维码
+# 被 qr_filter 丢弃的图片会在导出时逐行打印，方便核对。
 plugins:
   - qr_filter
   - cjk_spacing
