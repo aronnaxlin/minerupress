@@ -62,7 +62,10 @@ When operating on a book workspace:
 - Read local `AGENTS.md` if present.
 - Treat `.env`, source PDFs, `resources/mineru/`, `docs/chapters/`, `docs/images/`, `site/`, and `reports/` as local/generated unless the user explicitly wants to version that book project.
 - Do not hand-edit generated chapter Markdown as the durable fix; update `book.yml`, the source MinerU output, or a plugin.
-- Copy PDFs into the workspace, usually under `resources/pdfs/`, before API fetch or local parsing. This avoids PDF splitting into protected/cloud-drive paths.
+- Copy PDFs into the workspace, usually under `resources/pdfs/`, before API fetch or local parsing. Fetch resume state identifies the source PDF by path, size and mtime, so a stable local copy resumes reliably. Split chunks go to a temp dir, never next to the PDF.
+- `official_api` fetch is resumable: batch IDs are saved in `.minerupress/fetch-state.json`. After a download failure or poll timeout, rerun `minerupress fetch`; do not re-upload by hand. Use `minerupress fetch --force` only when the user wants to upload and parse again. Never call the MinerU API just to test.
+- `MINERU_API_TOKEN` and `CLOUDFLARE_*` are read from the `.env` next to `book.yml`; real environment variables take precedence.
+- On a new book `fetch` ends with a non-zero exit and a "source is ready, chapters missing" message because the template has a placeholder chapter. That is expected: run `minerupress headings`, fix `chapters`, then `minerupress export`.
 
 ## Commands
 

@@ -24,6 +24,10 @@ from .plugins.base import ExportPlugin
 # Configuration dataclasses
 # ---------------------------------------------------------------------------
 
+class BoundaryNotFoundError(RuntimeError):
+    """Configured chapter boundaries could not be located in the MinerU output."""
+
+
 @dataclass
 class ChapterConfig:
     slug: str                  # output filename stem, e.g. "ch01-overview"
@@ -1032,7 +1036,7 @@ def export(config: BookConfig, plugins: Sequence[ExportPlugin] = ()) -> None:
             cursor = loc
         if missing and not config.allow_missing_boundaries:
             missing_titles = ", ".join(ch.title for ch in missing)
-            raise RuntimeError(
+            raise BoundaryNotFoundError(
                 f"Chapter boundaries not found for volume {uid}: {missing_titles}"
             )
 

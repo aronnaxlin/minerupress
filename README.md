@@ -164,6 +164,8 @@ minerupress fetch book.yml
 minerupress export --fetch book.yml
 ```
 
+`official_api` 模式下，上传后的批次记录在 `.minerupress/fetch-state.json`。下载失败或轮询超时后重跑 `minerupress fetch` 会续跑，不会重新上传；`minerupress fetch --force` 忽略记录并重新上传。详见 [云端抓取与部署](docs/guide/cloud-api-and-deploy.md)。`.env`（`MINERU_API_TOKEN`、`CLOUDFLARE_*`）放在 `book.yml` 同一目录即可，shell 里已有的同名环境变量优先。
+
 分析 MinerU 输出中的正文大标题，生成章节配置草稿：
 
 ```bash

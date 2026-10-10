@@ -52,6 +52,7 @@ include = ["minerupress*"]
 [tool.setuptools.package-data]
 minerupress = [
     "book_template/.env.example",
+    "book_template/.gitignore",
     "book_template/Makefile",
     "book_template/book.yml",
     "book_template/mkdocs.yml",

@@ -30,9 +30,12 @@ api:
   enable_formula: true
   enable_table: true
   model_version: vlm
+  poll_timeout: 600  # seconds to wait for parsing per fetch run (default 600)
   sources:
     javaweb: resources/pdfs/javaweb.pdf
 ```
+
+Uploaded batches are recorded in `.minerupress/fetch-state.json` next to `book.yml`. Re-running `minerupress fetch` resumes from them instead of uploading again, skips volumes that are already fully fetched, and `minerupress fetch --force` ignores the record. The `.env` next to `book.yml` is loaded automatically; real environment variables win.
 
 Recommended first-pass fetch config for a raw PDF:
 
