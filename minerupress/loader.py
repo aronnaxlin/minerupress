@@ -69,8 +69,8 @@ def load_book_config(
 
     # Optional: use a locally installed MinerU CLI
     local_toolchain:
-      executable: mineru
-      args: []                             # optional extra CLI args; do not include -p/-o
+      executable: mineru                   # MinerU 4.x: mineru-kit
+      args: []                             # optional extra CLI args; do not include -p/-o (mineru-kit: -o/-f)
       sources:                             # volume_uid prefix -> local source file/dir
         73d5b3e7: resources/pdfs/vol1.pdf
 

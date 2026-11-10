@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Sequence
 from typing import Iterable
 
+from .mineru4 import has_mineru_output, load_content_list
 from .core import (
     BookConfig,
     _VolumeSegment,
@@ -101,15 +102,11 @@ def load_content_items(mineru_root: Path, volume_uid: str | None = None) -> list
 
     loaded: list[tuple[str, list[dict]]] = []
     for directory in dirs:
-        candidates = sorted(directory.glob("*_content_list.json"))
-        if not candidates:
+        if not has_mineru_output(directory):
             continue
-        non_v2 = [path for path in candidates if "v2" not in path.name]
-        content_path = non_v2[0] if non_v2 else candidates[0]
-        with open(content_path, encoding="utf-8") as f:
-            loaded.append((directory.name, json.load(f)))
+        loaded.append((directory.name, load_content_list(directory)))
     if not loaded:
-        raise FileNotFoundError(f"No *_content_list.json files found in {root}")
+        raise FileNotFoundError(f"No *_content_list.json or middle_json.json files found in {root}")
     return loaded
 
 

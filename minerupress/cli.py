@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 from importlib import resources
 from pathlib import Path
 from typing import Sequence
@@ -21,6 +22,7 @@ from dotenv import load_dotenv
 from .api_client import MinerUAPIError
 from .core import BoundaryNotFoundError, export
 from .loader import SourceConfig, load_book_config
+from .mineru4 import MIDDLE_JSON_NAME
 
 FETCH_STATE_RELPATH = Path(".minerupress") / "fetch-state.json"
 
@@ -86,6 +88,31 @@ def _do_official_api_prepare(
             print(f"  [api] renamed -> {target.name}")
 
 
+def _is_mineru_kit(executable: str) -> bool:
+    return Path(executable).stem.lower().startswith("mineru-kit")
+
+
+def _local_command(executable: str, args: list[str], input_path: Path, out_dir: Path) -> list[str]:
+    """Build the MinerU command line for the installed CLI generation.
+
+    MinerU 2.x: ``mineru -p <input> -o <out>``.
+    MinerU 4.x: ``mineru-kit parse <input> -o <out> -f zip``; there ``-p`` means
+    ``--pages``, so the 2.x form must not be reused. The zip is unpacked afterwards.
+    """
+    if _is_mineru_kit(executable):
+        return [executable, "parse", *args, "-f", "zip", "-o", str(out_dir / "result.zip"), str(input_path)]
+    return [executable, *args, "-p", str(input_path), "-o", str(out_dir)]
+
+
+def _unpack_kit_zips(tmp_root: Path) -> None:
+    """Extract the zip written by ``mineru-kit parse -f zip`` into a sibling directory."""
+    for zip_path in sorted(tmp_root.glob("*.zip")):
+        target = tmp_root / zip_path.stem
+        with zipfile.ZipFile(zip_path) as zf:
+            zf.extractall(target)
+        zip_path.unlink()
+
+
 def _do_local_toolchain_prepare(config, local_cfg) -> None:
     """Run a user-installed MinerU CLI and normalize its outputs into mineru_root."""
     if not local_cfg.sources:
@@ -93,18 +120,25 @@ def _do_local_toolchain_prepare(config, local_cfg) -> None:
             "local_toolchain.sources is empty. "
             "Add volume_uid -> local file/dir entries under 'local_toolchain.sources' in book.yml."
         )
-    if any(arg in {"-p", "--path", "-o", "--output"} for arg in local_cfg.args):
+    if _is_mineru_kit(local_cfg.executable):
+        reserved = {"-o", "--output", "-f", "--format"}
+        reserved_text = "-o/--output or -f/--format"
+    else:
+        reserved = {"-p", "--path", "-o", "--output"}
+        reserved_text = "-p/--path or -o/--output"
+    if any(arg in reserved for arg in local_cfg.args):
         raise ValueError(
-            "local_toolchain.args must not include -p/--path or -o/--output. "
+            f"local_toolchain.args must not include {reserved_text}. "
             "MineruPress appends those automatically."
         )
 
     executable = shutil.which(local_cfg.executable)
     if executable is None:
         raise RuntimeError(
-            "Local MinerU source selected, but the `mineru` CLI was not found.\n"
+            f"Local MinerU source selected, but `{local_cfg.executable}` was not found.\n"
             "Install MinerU separately, for example:\n"
             '  uv pip install -U "mineru[all]"\n'
+            "MinerU 4.x also needs `local_toolchain.executable: mineru-kit` in book.yml.\n"
             "or clone https://github.com/opendatalab/MinerU and run:\n"
             "  uv pip install -e .[all]\n"
             "For lighter installs, see:\n"
@@ -119,7 +153,7 @@ def _do_local_toolchain_prepare(config, local_cfg) -> None:
 
         with tempfile.TemporaryDirectory(prefix=f"minerupress-{uid}-", dir=config.mineru_root) as tmp_dir:
             tmp_root = Path(tmp_dir)
-            cmd = [executable, *local_cfg.args, "-p", str(input_path), "-o", str(tmp_root)]
+            cmd = _local_command(executable, local_cfg.args, input_path, tmp_root)
             print(f"  [local] running {' '.join(cmd)}")
             result = subprocess.run(
                 cmd,
@@ -128,16 +162,24 @@ def _do_local_toolchain_prepare(config, local_cfg) -> None:
                 check=False,
             )
             if result.returncode != 0:
+                hint = ""
+                if "No such option: -p" in result.stderr and not _is_mineru_kit(executable):
+                    hint = (
+                        "This looks like MinerU 4.x, whose `mineru` command has no -p/-o. "
+                        "Set local_toolchain.executable to `mineru-kit` instead.\n"
+                    )
                 raise RuntimeError(
-                    f"Local MinerU command failed for {input_path} (exit {result.returncode}).\n"
+                    f"{hint}Local MinerU command failed for {input_path} (exit {result.returncode}).\n"
                     f"STDOUT:\n{result.stdout[-2000:]}\n"
                     f"STDERR:\n{result.stderr[-2000:]}"
                 )
 
+            _unpack_kit_zips(tmp_root)
             out_dirs = _discover_generated_output_dirs(tmp_root)
             if not out_dirs:
                 raise RuntimeError(
-                    f"Local MinerU produced no *_content_list.json output under {tmp_root}"
+                    f"Local MinerU produced no *_content_list.json or {MIDDLE_JSON_NAME} "
+                    f"output under {tmp_root}"
                 )
 
             _clear_existing_uid_outputs(config.mineru_root, uid, keep=set())
@@ -193,10 +235,11 @@ def _clear_existing_uid_outputs(
 
 
 def _discover_generated_output_dirs(root: Path) -> list[Path]:
-    """Collect directories that contain legacy content_list.json output."""
+    """Collect directories holding MinerU output: 2.x content_list or 4.x middle_json."""
     seen: set[Path] = set()
     found: list[Path] = []
-    for json_path in sorted(root.rglob("*_content_list.json"), key=lambda p: str(p.relative_to(root))):
+    hits = [*root.rglob("*_content_list.json"), *root.rglob(MIDDLE_JSON_NAME)]
+    for json_path in sorted(hits, key=lambda p: str(p.relative_to(root))):
         parent = json_path.parent
         if parent in seen:
             continue

@@ -54,7 +54,7 @@ resources/mineru/
 
 每个分册目录下通常应包含：
 
-- `*_content_list.json`
+- `*_content_list.json`（MinerU 2.x 和官方 API），或 `middle_json.json`（MinerU 4.x，需要同一环境装有 `mineru` 包）
 - `images/`
 
 如果同一个逻辑分册被拆成多个物理目录，也没关系。只要它们目录名前缀都能匹配到同一个 `volume_uid`，导出器就会按自然顺序接起来处理。

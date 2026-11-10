@@ -35,9 +35,13 @@ page_footnotes: skip
 # 需要你先按 MinerU 官方文档自行安装 `mineru` CLI。常见方式：
 #   uv pip install -U "mineru[all]"
 #
+# MinerU 2.x 用 `mineru`；MinerU 4.x 的 `mineru` 没有 -p/-o，请把 executable 改成
+# `mineru-kit`。4.x 的结果不再带 *_content_list.json，MineruPress 会用同一环境里
+# 安装的 `mineru` 包从 middle_json.json 渲染出来，所以 MineruPress 和 mineru 要装在同一个 Python 环境。
+#
 # local_toolchain:
-#   executable: mineru
-#   args:                       # 额外 CLI 参数；不要写 -p / -o，MineruPress 会自动补上
+#   executable: mineru          # MinerU 4.x 改成 mineru-kit
+#   args:                       # 额外 CLI 参数；2.x 不要写 -p / -o，4.x 不要写 -o / -f，MineruPress 会自动补上
 #     - -b
 #     - pipeline
 #   sources:                    # volume_uid前缀 → 本地 PDF / 图片 / Office 文件或目录

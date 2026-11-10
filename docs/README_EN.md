@@ -6,7 +6,7 @@ MineruPress is a reusable `MinerU -> Markdown -> MkDocs` publishing pipeline for
 
 ## What It Does
 
-- Export MinerU `*_content_list.json` into chapter-based Markdown files.
+- Export MinerU `*_content_list.json` into chapter-based Markdown files. MinerU 4.x results (`middle_json.json`, no content list) are supported too: install the `mineru` package in the same environment, and set `local_toolchain.executable: mineru-kit`.
 - Treat multiple physical MinerU directories as one logical `volume_uid`.
 - Infer chapter boundaries from titles such as `第10章`, `附录A`, `Chapter 3`, `Lesson IV`, `Appendix B`, `项目二`, or `10.1`.
 - Preserve MinerU `code_body` blocks and escape literal HTML/XML tags in prose.

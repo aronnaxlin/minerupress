@@ -78,7 +78,7 @@ How titles become patterns, and what to do when a boundary is wrong, is in `chap
 
 ## Source: uploaded_result
 
-No extra block. Put MinerU result directories under `mineru_root`. Each must contain a `*_content_list.json` and, if the book has figures, an `images/` directory. When both `x_content_list.json` and `x_content_list_v2.json` exist, the one without `v2` is used.
+No extra block. Put MinerU result directories under `mineru_root`. Each must contain a `*_content_list.json` (MinerU 2.x and the official API) or a `middle_json.json` (MinerU 4.x; needs the `mineru` package installed in the same environment) and, if the book has figures, an `images/` directory. When both `x_content_list.json` and `x_content_list_v2.json` exist, the one without `v2` is used.
 
 `volume_uid` must be a prefix of the directory name. MinerU often names directories with a UUID, so a short prefix such as `73d5b3e7` is enough. Several directories with the same prefix (`my-book_part1`, `my-book_part2`) are read in natural order as one continuous volume.
 
@@ -119,6 +119,8 @@ local_toolchain:
 ```
 
 MineruPress runs `<executable> <args> -p <source> -o <temp dir>` and copies the result into `mineru_root`. Do not put `-p`, `--path`, `-o` or `--output` in `args`; they are added automatically and the config is rejected if they are present.
+
+MinerU 4.x: set `executable: mineru-kit`. Its `mineru` command has no `-p`/`-o`, and in `mineru-kit parse` `-p` means `--pages`. MineruPress then runs `mineru-kit parse <args> -f zip -o <temp dir>/result.zip <source>` and unpacks the zip; keep `-o`/`--output` and `-f`/`--format` out of `args`.
 
 The `mineru` CLI must already be installed. MineruPress neither bundles nor installs it. Installation and CLI options are documented by MinerU:
 

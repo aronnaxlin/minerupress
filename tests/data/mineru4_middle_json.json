@@ -1,0 +1,115 @@
+{
+  "metadata": {
+    "file_suffix": "pdf",
+    "producer": {
+      "name": "mineru",
+      "version": "4.0.12"
+    },
+    "document": {
+      "title": "img",
+      "created_at": "2026-11-10T08:08:31Z",
+      "modified_at": "2026-11-10T08:08:31Z",
+      "page_count": 1,
+      "page_count_kind": "physical"
+    }
+  },
+  "extensions": {
+    "mineru": {
+      "tier": "flash",
+      "parse_mode": "ocr"
+    },
+    "docvortex_layout": {
+      "version": 1,
+      "pages": [
+        {
+          "page_idx": 0,
+          "width_pt": 595.2000122070312,
+          "height_pt": 841.9199829101562
+        }
+      ]
+    }
+  },
+  "pages": [
+    {
+      "page_idx": 0,
+      "blocks": [
+        {
+          "type": "paragraph_title",
+          "index": 0,
+          "bbox": [
+            0.075,
+            0.059,
+            0.478,
+            0.091
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Chapter 1 Introduction"
+            }
+          ],
+          "level": 2
+        },
+        {
+          "type": "text",
+          "index": 1,
+          "bbox": [
+            0.075,
+            0.114,
+            0.457,
+            0.14
+          ],
+          "content": [
+            {
+              "type": "text",
+              "content": "Figure below is a synthetic chart"
+            }
+          ]
+        },
+        {
+          "type": "chart",
+          "index": 2,
+          "bbox": [
+            0.104,
+            0.233,
+            0.888,
+            0.575
+          ],
+          "content": [
+            {
+              "type": "chart_body",
+              "index": 2,
+              "bbox": [
+                0.104,
+                0.233,
+                0.888,
+                0.575
+              ],
+              "image_path": "images/page_0_chart_2.jpg",
+              "content": ""
+            },
+            {
+              "type": "chart_footnote",
+              "index": 3,
+              "bbox": [
+                0.076,
+                0.628,
+                0.385,
+                0.651
+              ],
+              "content": [
+                {
+                  "type": "text",
+                  "content": "Figure 1 Synthetic bar chart"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "is_full_document": true,
+  "schema": "docvortex.middle",
+  "schema_version": "2.0"
+}
