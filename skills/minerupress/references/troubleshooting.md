@@ -40,7 +40,9 @@ A short script that prints the items of one page, or counts items by type, is us
 | `MinerU batch ... failed` | MinerU rejected that chunk. Rerun `fetch`; only the failed chunk is uploaded again. If it fails repeatedly, the PDF chunk itself is the problem. |
 | `results already fetched ...; skipping` but the user wants a fresh parse | Run `minerupress fetch --force`, after confirming it will use API quota. |
 | `fetch` exits 1 with "MinerU output is ready, only the chapter configuration is missing or wrong." | Expected on a new book. The source is in place; configure `chapters` and run `export`. |
-| `Local MinerU source selected, but the ... CLI was not found` | `local_toolchain` needs a separately installed `mineru` on `PATH`, or `local_toolchain.executable` pointing at it. |
+| `No such option: -p` from `mineru` | MinerU 4.x. Set `local_toolchain.executable: mineru-kit`. |
+| `... is a MinerU 4.x result ... cannot be imported` | A 4.x directory has `middle_json.json` but no content list. Run `pip install mineru` in the same environment as MineruPress. |
+| `Local MinerU source selected, but `<executable>` was not found` | `local_toolchain` needs a separately installed `mineru` (or `mineru-kit` for 4.x) on `PATH`, or `local_toolchain.executable` pointing at it. |
 
 Do not delete `.minerupress/fetch-state.json` to "start clean" after a failure. It is what prevents a second upload.
 
@@ -49,7 +51,7 @@ Do not delete `.minerupress/fetch-state.json` to "start clean" after a failure. 
 | Symptom | Cause and fix |
 |---|---|
 | `Volume directories not found for UIDs: [...]` | No directory under `mineru_root` starts with that `volume_uid`. Check the directory names and either rename the directory or change `volume_uid` to a matching prefix. |
-| `No *_content_list.json found in <dir>` | The directory is not a complete MinerU result. Copy the whole result directory, not only the Markdown. |
+| `No *_content_list.json or middle_json.json found in <dir>` | The directory is not a complete MinerU result. Copy the whole result directory, not only the Markdown. |
 | `Error: Chapter boundaries not found ...` | See `chapter-boundaries.md`. Start with `minerupress headings ... --format yaml --body-only`. |
 | A chapter contains the next chapter's content | The next chapter's boundary was not found (with `allow_missing_boundaries`) or matched too late. Check the `[NOTE]` and `[WARN]` lines for it. |
 | A chapter is nearly empty | Its boundary matched a table-of-contents line or a cross-reference just before the next chapter. Raise `toc_max_page` or add an exact `start_pattern`. |

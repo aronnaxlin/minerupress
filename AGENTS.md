@@ -51,6 +51,7 @@ CI（`ci.yml`，PR 时运行，发布前由 `release.yml` 调用）跑两种安�
 - `minerupress/cli.py`：统一 CLI 入口，支持 `minerupress init|export|fetch|headings|nav|fingerprint`，并兼容旧命令。
 - `minerupress/headings.py`：`minerupress headings`，从正文标题和页眉里找章节候选并输出 `chapters` YAML。
 - `minerupress/nav.py`：根据 `book.yml` 章节生成 `mkdocs.yml` 的 nav 片段，检查现有 nav 是否漏章、指向不存在的章节或顺序不一致；只读，不改写 `mkdocs.yml`。
+- `minerupress/mineru4.py`：MinerU 4.x 兼容。4.x 结果目录只有 `middle_json.json`，没有 `*_content_list.json`；`load_content_list` 优先读 2.x 文件，否则调用同环境的 `mineru` 包在内存里渲染 content list，不往结果目录写文件。`core.py`、`headings.py` 和 `cli.py` 的目录发现都走这里。
 - `minerupress/api_client.py`：MinerU API 客户端，包含上传、轮询、下载和 PDF 分片。
 - `minerupress/fingerprint.py`：对 `docs/` 下 Markdown 生成 SHA-256 指纹并输出差异。
 - `minerupress/plugins/`：内置插件和 `ExportPlugin` 基类。
@@ -110,7 +111,7 @@ CI（`ci.yml`，PR 时运行，发布前由 `release.yml` 调用）跑两种安�
 
 ## 测试约定
 
-- 测试一律用合成数据，新行为配新测试。
+- 测试一律用合成数据，新行为配新测试。`tests/data/mineru4_middle_json.json` 是用 `mineru-kit parse --tier flash` 对合成页面跑出的真实 4.x 输出；依赖 `mineru` 包的测试要用 `pytest.importorskip("mineru")`。
 - 不在测试里调用 MinerU API；`tests/test_fetch.py` 演示了怎样替换客户端的网络方法。
 - 合成数据只能证明代码符合作者对 MinerU 输出的假设，而这些假设出过错（字段名、条目类型、章号出现的位置）。改动涉及条目转换或边界查找时，还要拿一份真实的 MinerU 输出验证：工作区放在仓库外，`docs_out` 指到临时目录，对比改动前后每章的条目数、`Items by type` 统计和章节文件的 diff。
 - 真实图书的数据不进仓库。验证中发现的问题用最小的合成数据在 `tests/` 里复现。
@@ -141,6 +142,8 @@ CI（`ci.yml`，PR 时运行，发布前由 `release.yml` 调用）跑两种安�
 - `book_template/` 和 `minerupress/book_template/` 需要保持同步；修改模板时同步两处，并运行相关测试。
 - `book_template/Makefile` 是给新书工作区使用的，不代表仓库根目录有 `make` 工作流。
 - `api_client.fetch()` 返回 `list[Path]`，顺序必须与原始 PDF chunk 顺序一致。
+- `local_toolchain` 的 `executable` 是 `mineru-kit`（按文件名前缀判断）时，命令是 `mineru-kit parse <args> -f zip -o <tmp>/result.zip <source>`，再解压；其中 `-p` 是页码范围，不能当输入路径。其他可执行文件仍用 2.x 的 `-p <source> -o <dir>`。
+- `official_api` 返回的 zip 仍是 `*_content_list.json` 风格（实测含 `layout.json`、`full.md`、`*_content_list_v2.json`），不受 4.x 影响。
 - `minerupress fetch` 会按 `source` 准备内容后自动导出。
 - `minerupress export --fetch` 是兼容/便捷入口；用户文档主流程优先讲清楚 `fetch` 和 `export` 的区别。
 - `core.export()` 会根据 UID 前缀在 `mineru_root` 下自动发现一个或多个分册目录，并按自然顺序顺推章节边界。

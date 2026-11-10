@@ -181,8 +181,9 @@ local_toolchain:
 说明：
 
 - MineruPress 不内置 MinerU 依赖；本地工具链需要你按 MinerU 官方文档单独安装
-- `executable` 默认为 `mineru`
-- `args` 只放额外参数；不要自己写 `-p/--path` 或 `-o/--output`
+- `executable` 默认为 `mineru`（MinerU 2.x）。MinerU 4.x 请改成 `mineru-kit`：4.x 的 `mineru` 命令没有 `-p/-o`，而 `mineru-kit parse` 里的 `-p` 是页码范围，不能当输入路径
+- `args` 只放额外参数；`mineru` 下不要写 `-p/--path`、`-o/--output`，`mineru-kit` 下不要写 `-o/--output`、`-f/--format`
+- 用 `mineru-kit` 时，MineruPress 执行 `mineru-kit parse <args> -f zip -o <临时目录>/result.zip <source>`，再解压整理
 - `sources` 的 key 同样需要和章节使用的 `volume_uid` 对应
 - 相对路径同样按 `book.yml` 所在目录解析
 
@@ -191,6 +192,12 @@ local_toolchain:
 ```bash
 uv pip install -U "mineru[all]"
 ```
+
+### MinerU 4.x 的结果格式
+
+MinerU 4.x 的结果目录是 `markdown.md`、`middle_json.json`、`structured_content.json` 和 `images/`，**不再有** `*_content_list.json`。MineruPress 读到这样的目录时，会调用同一 Python 环境里的 `mineru` 包，在内存里把 `middle_json.json` 渲染成 content list，不会往结果目录写文件。所以 `uploaded_result` 和 `local_toolchain` 在 4.x 下都需要 `pip install mineru`；没装时报错会给出这条命令。
+
+`official_api`（mineru.net）返回的仍是 `*_content_list.json`，不受影响，也不需要装 `mineru`。
 
 MinerU 的安装方式、扩展后端和 CLI 参数以官方文档为准：
 

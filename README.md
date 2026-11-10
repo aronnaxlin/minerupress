@@ -221,7 +221,8 @@ chapters:
 
 - `uploaded_result`：直接读取 `mineru_root` 下已有的 MinerU 结果目录。新模板默认使用这个模式，因为它不会触发上传、下载或本机解析。
 - `official_api`：使用 `api:` 配置走 MinerU 官方 API，适合从 PDF 开始。
-- `local_toolchain`：调用你单独安装的 `mineru` CLI。MineruPress 不内置 MinerU 依赖，只做外部适配。
+- `local_toolchain`：调用你单独安装的 `mineru` CLI（MinerU 2.x）或 `mineru-kit`（MinerU 4.x，需在 `book.yml` 里把 `executable` 改成 `mineru-kit`）。MineruPress 不内置 MinerU 依赖，只做外部适配。
+- MinerU 4.x 的结果目录没有 `*_content_list.json`，MineruPress 会用同一环境里的 `mineru` 包从 `middle_json.json` 渲染；`official_api` 不受影响。
 
 如果你选择 `local_toolchain`，请先按 MinerU 官方说明单独安装。常见方式是：
 

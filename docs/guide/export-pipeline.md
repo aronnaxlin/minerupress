@@ -8,7 +8,7 @@
 2. 解析章节配置、插件配置和可选 `api:` 配置
 3. 根据章节里出现的 `volume_uid` 收集逻辑分册
 4. 在 `mineru_root` 下发现所有匹配前缀的物理目录
-5. 读取每个目录里的 `*_content_list.json`
+5. 读取每个目录里的 `*_content_list.json`；MinerU 4.x 目录没有这个文件，就用 `mineru` 包从 `middle_json.json` 渲染
 6. 复制图片到 `docs/images/`，并让插件先决定是否保留
 7. 依次查找每章边界
 8. 把章节区间内的 item 转成 Markdown

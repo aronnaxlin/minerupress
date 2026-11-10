@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterator, Sequence
 
+from .mineru4 import load_content_list
 from .plugins.base import ExportPlugin
 
 # ---------------------------------------------------------------------------
@@ -245,13 +246,7 @@ def _format_code_block(code: str) -> str | None:
 
 
 def _load_volume(vol_dir: Path) -> list[dict]:
-    candidates = sorted(vol_dir.glob("*_content_list.json"))
-    if not candidates:
-        raise FileNotFoundError(f"No *_content_list.json found in {vol_dir}")
-    non_v2 = [p for p in candidates if "v2" not in p.name]
-    path = non_v2[0] if non_v2 else candidates[0]
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
+    return load_content_list(vol_dir)
 
 
 def _natural_key(path: Path) -> list[object]:
